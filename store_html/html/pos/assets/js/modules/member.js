@@ -245,32 +245,48 @@ export function openMemberDetailModal() {
 }
 
 
-/* ----------------- API（JSON → x-www-form-urlencoded → GET 回退） ----------------- */
+/* ----------------- API（统一的JSON POST调用） ----------------- */
 async function callMemberAPI(url, payload){
-  // [FIX] 添加 credentials: 'same-origin' 到所有 fetch
-  const credentials = { credentials: 'same-origin' };
+  // [FIX 2025-11-19] 简化为单一的JSON POST调用
+  // 后端 pos_api_gateway.php 已经支持 JSON/form/GET 多种格式
+  // 不需要前端多次重试，重试会导致误判和无效请求
 
-  // 1) JSON
   try{
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), ...credentials });
-    if (r.ok){ const j = await r.json().catch(()=>null); if (j && (j.status==='success' || j.ok)) return j.data || j.member || null; }
-  }catch(_e){}
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'same-origin'
+    });
 
-  // 2) x-www-form-urlencoded（很多传统 PHP 会要求这个）
-  try{
-    const body = new URLSearchParams(payload).toString();
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body, ...credentials });
-    if (r.ok){ const j = await r.json().catch(()=>null); if (j && (j.status==='success' || j.ok)) return j.data || j.member || null; }
-  }catch(_e){}
+    // 尝试解析JSON响应
+    let json = null;
+    try {
+      json = await r.json();
+    } catch(e) {
+      console.error('[callMemberAPI] JSON parse error:', e);
+      return null;
+    }
 
-  // 3) GET
-  try{
-    const qs = new URLSearchParams(payload).toString();
-    const r = await fetch(`${url}?${qs}`, { method:'GET', ...credentials });
-    if (r.ok){ const j = await r.json().catch(()=>null); if (j && (j.status==='success' || j.ok)) return j.data || j.member || null; }
-  }catch(_e){}
+    // 检查响应状态
+    if (json && json.status === 'success') {
+      // 成功：返回数据
+      return json.data || null;
+    } else if (json && json.status === 'error') {
+      // 业务错误（如member not found）：不重试，直接返回null
+      console.warn('[callMemberAPI] Business error:', json.message);
+      return null;
+    } else {
+      // 其他情况
+      console.error('[callMemberAPI] Unexpected response:', json);
+      return null;
+    }
 
-  return null;
+  } catch(e) {
+    // 网络错误或其他异常
+    console.error('[callMemberAPI] Network/Exception error:', e);
+    return null;
+  }
 }
 
 /* ----------------- 关联/提示 ----------------- */
@@ -318,17 +334,11 @@ export async function findMember(phone){
       return null;
     }
 
-    // [GEMINI FIX 3] 修复 API 路径
-    const payload = { phone: input }; // action 在 URL 中
-    const endpoints = [
-        'api/pos_api_gateway.php?res=member&act=find', // 新的、正确的路径
-        'api/member_handler.php' // 保留旧的 (错误的) 作为回退
-    ];
-    let found = null;
-    for (const url of endpoints){
-      found = await callMemberAPI(url, payload);
-      if (found) break;
-    }
+    // [FIX 2025-11-19] 移除对不存在的 member_handler.php 的回退调用
+    // 只使用统一的 gateway 接口
+    const payload = { phone: input };
+    const url = 'api/pos_api_gateway.php?res=member&act=find';
+    const found = await callMemberAPI(url, payload);
 
     if (found){
       linkMember(found);
@@ -375,18 +385,11 @@ export async function createMember(payload){
       return null;
     }
 
-    // [GEMINI FIX 3] 修复 API 路径
-    const endpoints = [
-        'api/pos_api_gateway.php?res=member&act=create', // 新的、正确的路径
-        'api/member_handler.php' // 保留旧的 (错误的) 作为回退
-    ];
-    // 适配新后端的载荷
+    // [FIX 2025-11-19] 移除对不存在的 member_handler.php 的回退调用
+    // 只使用统一的 gateway 接口，适配新后端的载荷格式
+    const url = 'api/pos_api_gateway.php?res=member&act=create';
     const req = { data: { phone_number: phone, first_name, last_name, email, birthdate } };
-    let created = null;
-    for (const url of endpoints){
-      created = await callMemberAPI(url, req);
-      if (created) break;
-    }
+    const created = await callMemberAPI(url, req);
 
     // [GEMINI FIX 1] 移除静默的本地回退，改为抛出错误
     if (!created){

@@ -38,8 +38,16 @@ function handle_member_find(PDO $pdo, array $config, array $input_data): void {
 
     if ($member) {
         // 3. 附加该会员的有效次卡列表（如果 helper 存在）
+        // [FIX 2025-11-19] 增加容错：即使次卡查询失败，也不影响会员基础信息返回
         if (function_exists('get_member_active_passes')) {
-            $member['passes'] = get_member_active_passes($pdo, (int)$member['id']);
+            try {
+                $member['passes'] = get_member_active_passes($pdo, (int)$member['id']);
+            } catch (Throwable $e) {
+                // 记录错误但不抛出，避免影响会员查找
+                error_log('[MEMBER_FIND] get_member_active_passes failed: ' . $e->getMessage());
+                error_log('[MEMBER_FIND] File: ' . $e->getFile() . ':' . $e->getLine());
+                $member['passes'] = []; // 降级处理：返回空数组
+            }
         } else {
             $member['passes'] = [];
         }
@@ -375,17 +383,82 @@ function handle_pass_purchase(PDO $pdo, array $config, array $input_data): void 
 
     } catch (PDOException $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        // [FIX 500 ERROR 2025-11-19] 添加详细的错误日志
+
+        // [FIX 500 ERROR 2025-11-19] 详细记录数据库错误
         error_log('[PASS_PURCHASE] PDOException: ' . $e->getMessage());
+        error_log('[PASS_PURCHASE] SQL State: ' . ($e->errorInfo[0] ?? 'N/A'));
+        error_log('[PASS_PURCHASE] Error Code: ' . ($e->errorInfo[1] ?? 'N/A'));
+        error_log('[PASS_PURCHASE] Member ID: ' . $member_id);
+        error_log('[PASS_PURCHASE] SKU: ' . ($cart_item['sku'] ?? 'N/A'));
         error_log('[PASS_PURCHASE] Trace: ' . $e->getTraceAsString());
-        json_error('Database error during pass purchase: ' . $e->getMessage(), 500);
+
+        // 区分不同的数据库错误类型，给出更友好的提示
+        $error_code = $e->errorInfo[1] ?? 0;
+        $lang = $_SESSION['pos_lang'] ?? 'zh';
+
+        // 1062 = Duplicate entry (已通过叠加购买逻辑处理，理论上不应再出现)
+        if ($error_code == 1062) {
+            error_log('[PASS_PURCHASE] UNEXPECTED: Duplicate key error should be handled by stacked purchase logic!');
+            if ($lang === 'es') {
+                json_error('Error inesperado: conflicto de restricción única. Contacte con el administrador.', 500);
+            } else {
+                json_error('系统错误：唯一约束冲突（叠加购买逻辑异常），请联系管理员。', 500);
+            }
+        }
+
+        // 1452 = Foreign key constraint (会员或次卡定义不存在)
+        if ($error_code == 1452) {
+            error_log('[PASS_PURCHASE] Foreign key constraint violation - member or plan may have been deleted mid-transaction');
+            if ($lang === 'es') {
+                json_error('Error de datos: miembro o plan de tarjeta no válido.', 400);
+            } else {
+                json_error('数据错误：会员或次卡方案无效。', 400);
+            }
+        }
+
+        // 其他数据库错误
+        if ($lang === 'es') {
+            json_error('Error de base de datos al procesar la compra. Por favor, inténtelo de nuevo o contacte con soporte.', 500);
+        } else {
+            json_error('购卡处理时发生数据库错误，请重试或联系技术支持。', 500);
+        }
+
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        // [FIX 500 ERROR 2025-11-19] 捕获所有异常（包括 Error）
-        $error_code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 500;
+
+        // [FIX 500 ERROR 2025-11-19] 捕获所有其他异常（包括 Error 和业务逻辑异常）
         error_log('[PASS_PURCHASE] Exception: ' . get_class($e) . ': ' . $e->getMessage());
+        error_log('[PASS_PURCHASE] Code: ' . $e->getCode());
+        error_log('[PASS_PURCHASE] File: ' . $e->getFile() . ':' . $e->getLine());
+        error_log('[PASS_PURCHASE] Member ID: ' . ($member_id ?? 'N/A'));
+        error_log('[PASS_PURCHASE] SKU: ' . ($cart_item['sku'] ?? 'N/A'));
         error_log('[PASS_PURCHASE] Trace: ' . $e->getTraceAsString());
-        json_error('Error during pass purchase: ' . $e->getMessage(), $error_code);
+
+        // 根据异常类型区分业务错误(400)和系统错误(500)
+        $error_code = 500;
+        $error_msg = $e->getMessage();
+
+        // 如果异常消息中包含业务规则关键词，归类为业务错误
+        $business_keywords = ['not found', 'invalid', 'required', 'already exists', 'limit exceeded', 'not allowed'];
+        foreach ($business_keywords as $keyword) {
+            if (stripos($error_msg, $keyword) !== false) {
+                $error_code = 400;
+                break;
+            }
+        }
+
+        $lang = $_SESSION['pos_lang'] ?? 'zh';
+        if ($error_code == 400) {
+            // 业务错误：直接返回异常消息
+            json_error($error_msg, 400);
+        } else {
+            // 系统错误：返回通用提示，不暴露内部细节
+            if ($lang === 'es') {
+                json_error('Error del sistema al procesar la compra. Por favor, contacte con soporte.', 500);
+            } else {
+                json_error('购卡处理时发生系统错误，请联系技术支持。', 500);
+            }
+        }
     }
 }
 
