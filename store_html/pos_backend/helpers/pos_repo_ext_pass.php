@@ -213,11 +213,25 @@ if (!function_exists('get_member_active_passes')) {
         $today_utc_date = (new DateTime($today_local_date . ' 00:00:00', $tz))
                           ->setTimezone(new DateTimeZone('UTC'))
                           ->format('Y-m-d');
-        
-        $sql_usage = "SELECT member_pass_id, uses_count FROM pass_daily_usage WHERE member_id = ? AND usage_date = ?";
-        $stmt_usage = $pdo->prepare($sql_usage);
-        $stmt_usage->execute([$member_id, $today_utc_date]);
-        $today_usages = $stmt_usage->fetchAll(PDO::FETCH_KEY_PAIR); // [pass_id => uses_count]
+
+        // [FIX 2025-11-19] 修正字段名：pass_daily_usage 表只有 member_pass_id，没有 member_id
+        // 收集所有次卡ID
+        $pass_ids = array_column($passes, 'pass_id');
+
+        // 使用 IN 子句查询这些次卡的今日使用情况
+        // [FIX 2025-11-19] 增加容错：如果 pass_daily_usage 表不存在或查询失败，不影响次卡列表返回
+        $today_usages = [];
+        try {
+            $placeholders = implode(',', array_fill(0, count($pass_ids), '?'));
+            $sql_usage = "SELECT member_pass_id, uses_count FROM pass_daily_usage WHERE member_pass_id IN ($placeholders) AND usage_date = ?";
+            $stmt_usage = $pdo->prepare($sql_usage);
+            $stmt_usage->execute(array_merge($pass_ids, [$today_utc_date]));
+            $today_usages = $stmt_usage->fetchAll(PDO::FETCH_KEY_PAIR); // [pass_id => uses_count]
+        } catch (PDOException $e) {
+            // 如果表不存在或查询失败，记录日志但继续执行（不影响次卡列表返回）
+            error_log('[GET_MEMBER_PASSES] pass_daily_usage query failed: ' . $e->getMessage());
+            // $today_usages 保持为空数组，下面的代码会将 daily_uses_remaining 设为 null
+        }
 
         foreach ($passes as &$pass) {
             if ($pass['max_uses_per_day'] > 0) {

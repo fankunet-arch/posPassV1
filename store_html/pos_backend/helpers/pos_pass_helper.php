@@ -52,9 +52,14 @@ if (!function_exists('get_pass_plan_details')) {
 
 if (!function_exists('create_pass_records')) {
     /**
-     * [B1.2] P0 售卡：创建售卡记录 (topup_orders)
-     * [FIX 500 ERROR 2025-11-19] 修正字段引用：price 而不是 unit_price_eur
-     * (注意：B1 阶段简化，暂不处理支付详情，假设已支付)
+     * [B1.2] P0 售卡：创建售卡记录 (topup_orders + member_passes)
+     * [FIX 2025-11-19] 实现叠加购买：允许同一会员多次购买同一方案，累加次数而不是插入新记录
+     *
+     * 业务规则：
+     * - 每次购买都生成一条 topup_orders 记录（VR 订单）
+     * - 如果会员已有该方案的 member_passes 记录，则 UPDATE 累加次数
+     * - 如果会员没有该方案记录，则 INSERT 新记录
+     * - 叠加时不缩短有效期（取 MAX(old_expires, new_expires)）
      */
     function create_pass_records(PDO $pdo, array $context, array $vr_info, array $cart_item, array $plan_details): int {
 
@@ -66,13 +71,13 @@ if (!function_exists('create_pass_records')) {
 
         // [A2 UTC SYNC] 依赖 datetime_helper.php
         $now_utc = utc_now();
-        $now_utc_str = $now_utc->format('Y-m-d H:i:s'); // B1 阶段的表 (topup_orders, member_passes) 均使用 0 精度
+        $now_utc_str = $now_utc->format('Y-m-d H:i:s');
         $validity_days = (int)$plan_details['validity_days'];
 
-        // [FIX 500 ERROR 2025-11-19] 从 cart_item 中提取价格（前端传入的是 price 和 total）
+        // 从 cart_item 中提取价格
         $unit_price = (float)($cart_item['price'] ?? $cart_item['total'] ?? 0);
 
-        // 2. 写入 售卡订单 (VR)
+        // 2. 写入 售卡订单 (VR) - 每次购买都生成新订单
         $sql_topup = "
             INSERT INTO topup_orders
                 (pass_plan_id, member_id, quantity, amount_total, store_id, device_id,
@@ -85,7 +90,7 @@ if (!function_exists('create_pass_records')) {
             $plan_details['pass_plan_id'],
             $member_id,
             (int)$cart_item['qty'],
-            $unit_price, // B1 阶段, 总价 = 单价 * 1
+            $unit_price,
             $store_id,
             $device_id,
             $user_id,
@@ -95,39 +100,98 @@ if (!function_exists('create_pass_records')) {
         ]);
         $topup_order_id = (int)$pdo->lastInsertId();
 
-        // 3. (B1 阶段) 写入/激活 会员持卡
-        // B1 阶段简化：售卡立即激活，不走审核
-        // [B1.2] B1 阶段的实现：售卡订单只允许包含一个次卡商品，且数量为1
+        // 3. 叠加购买逻辑：先查询是否已有该会员+方案的记录
+        $plan_id = $plan_details['pass_plan_id'];
         $total_uses_to_add = (int)$plan_details['total_uses'] * (int)$cart_item['qty'];
-        $purchase_amount = $unit_price;
-        $unit_allocated_base = ($total_uses_to_add > 0) ? ($purchase_amount / $total_uses_to_add) : 0;
-        
-        // [A2 UTC SYNC] 计算 UTC 过期时间
-        $expires_at_utc_str = $now_utc->modify("+{$validity_days} days")->format('Y-m-d H:i:s');
+        $purchase_amount_to_add = $unit_price;
 
-        $sql_pass = "
-            INSERT INTO member_passes 
-                (member_id, pass_plan_id, topup_order_id, total_uses, remaining_uses, 
-                 purchase_amount, unit_allocated_base, status, store_id, 
-                 activated_at, expires_at)
-            VALUES
-                (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+        $sql_check = "
+            SELECT member_pass_id, total_uses, remaining_uses, purchase_amount, expires_at
+            FROM member_passes
+            WHERE member_id = ? AND pass_plan_id = ?
+            LIMIT 1
         ";
-        $stmt_pass = $pdo->prepare($sql_pass);
-        $stmt_pass->execute([
-            $member_id,
-            $plan_details['pass_plan_id'],
-            $topup_order_id,
-            $total_uses_to_add,
-            $total_uses_to_add,
-            $purchase_amount,
-            $unit_allocated_base,
-            $store_id,
-            $now_utc_str, // activated_at
-            $expires_at_utc_str // expires_at
-        ]);
-        
-        return (int)$pdo->lastInsertId();
+        $stmt_check = $pdo->prepare($sql_check);
+        $stmt_check->execute([$member_id, $plan_id]);
+        $existing_pass = $stmt_check->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing_pass) {
+            // 3a. 已存在记录：叠加购买，UPDATE 累加次数
+            $member_pass_id = (int)$existing_pass['member_pass_id'];
+
+            // 累加次数和金额
+            $new_total_uses = (int)$existing_pass['total_uses'] + $total_uses_to_add;
+            $new_remaining_uses = (int)$existing_pass['remaining_uses'] + $total_uses_to_add;
+            $new_purchase_amount = (float)$existing_pass['purchase_amount'] + $purchase_amount_to_add;
+            $new_unit_allocated_base = ($new_total_uses > 0) ? ($new_purchase_amount / $new_total_uses) : 0;
+
+            // 计算新的过期时间：取 MAX(old_expires, now + validity_days)
+            $old_expires_utc_str = $existing_pass['expires_at'];
+            $new_expires_candidate = (clone $now_utc)->modify("+{$validity_days} days")->format('Y-m-d H:i:s');
+
+            // 使用 SQL GREATEST 函数在数据库层面比较
+            $sql_update = "
+                UPDATE member_passes
+                SET total_uses = ?,
+                    remaining_uses = ?,
+                    purchase_amount = ?,
+                    unit_allocated_base = ?,
+                    expires_at = GREATEST(expires_at, ?),
+                    topup_order_id = ?
+                WHERE member_pass_id = ?
+            ";
+            $stmt_update = $pdo->prepare($sql_update);
+            $stmt_update->execute([
+                $new_total_uses,
+                $new_remaining_uses,
+                $new_purchase_amount,
+                $new_unit_allocated_base,
+                $new_expires_candidate,
+                $topup_order_id, // 更新为最新的订单ID
+                $member_pass_id
+            ]);
+
+            error_log("[PASS_PURCHASE] Stacked purchase for member_id={$member_id}, plan_id={$plan_id}: " .
+                      "total_uses {$existing_pass['total_uses']} -> {$new_total_uses}, " .
+                      "remaining_uses {$existing_pass['remaining_uses']} -> {$new_remaining_uses}");
+
+            return $member_pass_id;
+
+        } else {
+            // 3b. 不存在记录：首次购买，INSERT 新记录
+            $unit_allocated_base = ($total_uses_to_add > 0) ? ($purchase_amount_to_add / $total_uses_to_add) : 0;
+            $expires_at_utc_str = (clone $now_utc)->modify("+{$validity_days} days")->format('Y-m-d H:i:s');
+
+            $sql_insert = "
+                INSERT INTO member_passes
+                    (member_id, pass_plan_id, topup_order_id, total_uses, remaining_uses,
+                     purchase_amount, unit_allocated_base, status, store_id, device_id,
+                     activated_at, expires_at)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            ";
+            $stmt_insert = $pdo->prepare($sql_insert);
+            $stmt_insert->execute([
+                $member_id,
+                $plan_id,
+                $topup_order_id,
+                $total_uses_to_add,
+                $total_uses_to_add,
+                $purchase_amount_to_add,
+                $unit_allocated_base,
+                $store_id,
+                $device_id,
+                $now_utc_str, // activated_at
+                $expires_at_utc_str
+            ]);
+
+            $member_pass_id = (int)$pdo->lastInsertId();
+
+            error_log("[PASS_PURCHASE] First-time purchase for member_id={$member_id}, plan_id={$plan_id}: " .
+                      "total_uses={$total_uses_to_add}, member_pass_id={$member_pass_id}");
+
+            return $member_pass_id;
+        }
     }
 }
 

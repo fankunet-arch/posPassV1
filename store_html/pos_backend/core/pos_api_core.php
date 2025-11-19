@@ -52,6 +52,33 @@ function run_api(array $registry, PDO $pdo): void {
     try {
         call_user_func($handler_name, $pdo, $config, $input_data);
     } catch (Throwable $e) {
-        json_error('服务器内部错误: ' . $e->getMessage(), 500);
+        // [FIX 2025-11-19] 增强错误日志，记录详细信息
+        $error_details = [
+            'type' => get_class($e),
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'resource' => $resource_name,
+            'action' => $action_name,
+            'trace' => $e->getTraceAsString()
+        ];
+
+        // 记录到错误日志
+        error_log('[POS API ERROR] ' . json_encode($error_details, JSON_UNESCAPED_UNICODE));
+
+        // 如果是数据库错误，尝试提取更多信息
+        if ($e instanceof PDOException) {
+            error_log('[POS API PDO] SQL State: ' . ($e->errorInfo[0] ?? 'N/A'));
+            error_log('[POS API PDO] Driver Code: ' . ($e->errorInfo[1] ?? 'N/A'));
+            error_log('[POS API PDO] Driver Msg: ' . ($e->errorInfo[2] ?? 'N/A'));
+        }
+
+        // 返回给客户端（开发环境可以返回详细错误，生产环境只返回简化消息）
+        $is_dev = ($_SERVER['SERVER_NAME'] ?? '') === 'localhost' || strpos($_SERVER['SERVER_NAME'] ?? '', '127.0.0.1') !== false;
+        if ($is_dev) {
+            json_error('服务器内部错误: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine(), 500);
+        } else {
+            json_error('服务器内部错误，请稍后重试。', 500);
+        }
     }
 }
