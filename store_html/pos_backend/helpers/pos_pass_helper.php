@@ -53,27 +53,31 @@ if (!function_exists('get_pass_plan_details')) {
 if (!function_exists('create_pass_records')) {
     /**
      * [B1.2] P0 售卡：创建售卡记录 (topup_orders)
+     * [FIX 500 ERROR 2025-11-19] 修正字段引用：price 而不是 unit_price_eur
      * (注意：B1 阶段简化，暂不处理支付详情，假设已支付)
      */
     function create_pass_records(PDO $pdo, array $context, array $vr_info, array $cart_item, array $plan_details): int {
-        
+
         // 1. 获取上下文
         $store_id  = $context['store_id'];
         $user_id   = $context['user_id'];
         $device_id = $context['device_id'];
         $member_id = $context['member_id'];
-        
+
         // [A2 UTC SYNC] 依赖 datetime_helper.php
         $now_utc = utc_now();
         $now_utc_str = $now_utc->format('Y-m-d H:i:s'); // B1 阶段的表 (topup_orders, member_passes) 均使用 0 精度
         $validity_days = (int)$plan_details['validity_days'];
-        
+
+        // [FIX 500 ERROR 2025-11-19] 从 cart_item 中提取价格（前端传入的是 price 和 total）
+        $unit_price = (float)($cart_item['price'] ?? $cart_item['total'] ?? 0);
+
         // 2. 写入 售卡订单 (VR)
         $sql_topup = "
-            INSERT INTO topup_orders 
-                (pass_plan_id, member_id, quantity, amount_total, store_id, device_id, 
+            INSERT INTO topup_orders
+                (pass_plan_id, member_id, quantity, amount_total, store_id, device_id,
                  sale_user_id, sale_time, voucher_series, voucher_number, review_status)
-            VALUES 
+            VALUES
                 (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
         ";
         $stmt_topup = $pdo->prepare($sql_topup);
@@ -81,7 +85,7 @@ if (!function_exists('create_pass_records')) {
             $plan_details['pass_plan_id'],
             $member_id,
             (int)$cart_item['qty'],
-            (float)$cart_item['unit_price_eur'], // B1 阶段, 总价 = 单价 * 1
+            $unit_price, // B1 阶段, 总价 = 单价 * 1
             $store_id,
             $device_id,
             $user_id,
@@ -90,12 +94,12 @@ if (!function_exists('create_pass_records')) {
             $vr_info['number']
         ]);
         $topup_order_id = (int)$pdo->lastInsertId();
-        
+
         // 3. (B1 阶段) 写入/激活 会员持卡
         // B1 阶段简化：售卡立即激活，不走审核
         // [B1.2] B1 阶段的实现：售卡订单只允许包含一个次卡商品，且数量为1
         $total_uses_to_add = (int)$plan_details['total_uses'] * (int)$cart_item['qty'];
-        $purchase_amount = (float)$cart_item['unit_price_eur'];
+        $purchase_amount = $unit_price;
         $unit_allocated_base = ($total_uses_to_add > 0) ? ($purchase_amount / $total_uses_to_add) : 0;
         
         // [A2 UTC SYNC] 计算 UTC 过期时间

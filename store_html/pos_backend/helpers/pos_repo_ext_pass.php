@@ -69,6 +69,23 @@ if (!function_exists('get_pass_plan_details')) {
 }
 */
 
+// [FIX 500 ERROR 2025-11-19] 新增：通过 SKU 查询次卡方案
+if (!function_exists('get_pass_plan_by_sku')) {
+    /**
+     * 通过 sale_sku 查询次卡方案详情
+     * 用于售卡流程（handle_pass_purchase）
+     */
+    function get_pass_plan_by_sku(PDO $pdo, string $sku): ?array {
+        $stmt = $pdo->prepare("
+            SELECT * FROM pass_plans
+            WHERE sale_sku = ? AND is_active = 1
+        ");
+        $stmt->execute([$sku]);
+        $plan = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $plan ?: null;
+    }
+}
+
 // [B1.2] 分配 VR (售卡) 票号
 if (!function_exists('allocate_vr_invoice_number')) {
     function allocate_vr_invoice_number(PDO $pdo, string $store_prefix): array {
