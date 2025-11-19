@@ -1,0 +1,8 @@
+所有的任务发布都需要在文档中强调说明与相对应的系统的文件与网络位置进行对齐。
+https://hqv3.toptea.es/cpsys/index.php
+/hq_html/html/cpsys/index.php
+
+https://storev3.toptea.es/pos/index.php
+/store_html/html/pos/index.php
+
+这是全部的位置，需要你(GPT)在发布任务的时候，选择对应的系统加入到文件中。
