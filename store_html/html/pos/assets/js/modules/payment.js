@@ -402,11 +402,11 @@ export async function submitOrder() {
                     $('#success_qr_content').closest('div').show().find('code').text(result.data.qr_content_tp);
                 }
 
-            } else if (isPurchase) {
+            } else if (isDiscountCardPurchase) {
                 // 售卡成功
                 $('#orderSuccessModal [data-i18n="order_success"]').text('售卡成功'); // TODO: I18N
                 $('#orderSuccessModal [data-i18n="invoice_number"]').text('售卡凭证 (VR)'); // TODO: I18N
-                $('#success_invoice_number').show().text(result.data.voucher_number || 'N/A');
+                $('#success_invoice_number').show().text(result.data.vr_invoice_number || 'N/A');
                 $('#orderSuccessModal [data-i18n="qr_code_info"]').hide();
                 $('#success_qr_content').closest('div').hide();
                 
