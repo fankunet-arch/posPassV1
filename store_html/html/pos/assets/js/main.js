@@ -80,11 +80,9 @@ export function startPassRedemptionSession(pass) {
     // [FIX] 关闭所有可能打开的侧边栏和 Modal，并移除遗留的 backdrop
     const cartOffcanvas = bootstrap.Offcanvas.getInstance('#cartOffcanvas');
     const passActionModal = bootstrap.Modal.getInstance('#passActionSelectorModal');
-    const discountCenterOffcanvas = bootstrap.Offcanvas.getInstance('#discountCenterOffcanvas');
 
     if (cartOffcanvas) cartOffcanvas.hide();
     if (passActionModal) passActionModal.hide();
-    if (discountCenterOffcanvas) discountCenterOffcanvas.hide();
 
     // [FIX] 强制移除所有可能遗留的 backdrop 遮罩层
     // 这是为了防止遮罩层遮挡商品卡片导致无法点击
@@ -160,17 +158,16 @@ function showUnclosedEodOverlay(unclosedDate) {
 }
 
 
-// [FIX] 防止事件重复绑定标志
-let eventsAlreadyBound = false;
-
+// [FIX] 使用全局标志防止事件重复绑定（跨模块实例共享）
 function bindEvents() {
-  if (eventsAlreadyBound) {
+  if (window.__POS_EVENTS_BOUND__) {
     console.error('⚠️⚠️⚠️ 事件已经绑定过了！检测到重复绑定尝试，已阻止。');
+    console.error('⚠️⚠️⚠️ 这说明 main.js 被加载了多次！检查 HTML 中的 script 标签。');
     console.trace('重复绑定调用堆栈：');
     return;
   }
-  eventsAlreadyBound = true;
-  console.log("Binding events...");
+  window.__POS_EVENTS_BOUND__ = true;
+  console.log("✓ Binding events (第一次，已设置全局标志)...");
 
   const $document = $(document);
 
@@ -488,17 +485,16 @@ async function initApplication() {
 }
 
 // --- Main Execution ---
-// [FIX] 防止重复初始化（脚本被加载两次时）
-let isInitialized = false;
-
+// [FIX] 使用全局标志防止重复初始化（跨模块实例共享）
 document.addEventListener('DOMContentLoaded', () => {
-    if (isInitialized) {
+    if (window.__POS_INITIALIZED__) {
         console.error('⚠️⚠️⚠️ POS 已经初始化过了！检测到重复初始化尝试，已阻止。');
+        console.error('⚠️⚠️⚠️ 这说明 main.js 被加载了多次！检查 HTML 中的 script 标签。');
         console.trace('重复初始化调用堆栈：');
         return;
     }
-    isInitialized = true;
-    console.log('✓ POS 开始初始化...');
+    window.__POS_INITIALIZED__ = true;
+    console.log('✓ POS 开始初始化（第一次，已设置全局标志）...');
 
     initializeShiftModals();
     // [GEMINI 瘦身] 启动交接班完成弹窗的监听器

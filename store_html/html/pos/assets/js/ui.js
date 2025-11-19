@@ -316,11 +316,21 @@ export function renderCategories() {
 
     $container.empty();
 
-    // [FIX] 移除核销模式下禁用分类的逻辑
-    // 核销模式下应该允许切换分类，只是在 renderProducts() 中过滤白名单商品
-    // const isPassMode = STATE.activePassSession !== null;
+    // [核销模式限制] 隐藏优惠卡分类，防止漏洞
+    const isPassMode = STATE.activePassSession !== null;
+    const discountCenterKeys = ['P_multi_pass', 'PASS', 'DISCOUNT_CARD', 'PROMO_CARD'];
 
     STATE.categories.forEach(cat => {
+        // [核销模式限制] 在核销模式下跳过优惠卡分类
+        if (isPassMode) {
+            const isDiscountCategory = discountCenterKeys.some(key =>
+                key.toUpperCase() === cat.key.toUpperCase()
+            );
+            if (isDiscountCategory) {
+                return; // 跳过此分类
+            }
+        }
+
         $container.append(`
             <li class="nav-item">
                 <a class="nav-link ${cat.key === STATE.active_category_key ? 'active' : ''}"
@@ -488,6 +498,14 @@ export function refreshCartUI() {
     $cartFooter.show();
     // [修复问题3] ID 从 #cart_badge 修正为 #cart_count
     $('#cart_count').text(STATE.cart.length);
+
+    // [核销模式限制] 隐藏挂起按钮，只允许结账
+    const isPassMode = STATE.activePassSession !== null;
+    if (isPassMode) {
+        $('#btn_hold_current_cart').hide();
+    } else {
+        $('#btn_hold_current_cart').show();
+    }
 }
 
 /**

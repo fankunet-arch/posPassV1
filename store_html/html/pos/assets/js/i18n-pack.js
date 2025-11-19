@@ -88,12 +88,21 @@ export const I18N = {
 
     // --- 优惠中心 ---
     discount_center: '优惠中心',
+    discount_center_title: '优惠中心',
     discount_center_desc: '选择优惠类型以查看详情和购买',
+    discount_center_select_category: '请选择优惠类型：',
+    discount_center_select_action: '请选择操作类型：',
+    discount_center_options: '个选项',
+    back: '返回',
+
+    // --- 优惠中心 - 次卡分类 ---
+    discount_center_pass_category: '次卡',
+    discount_center_pass_category_desc: '购买、核销饮品次卡',
     discount_center_pass: '次卡',
     discount_center_pass_desc: '购买饮品次卡，享受优惠',
     discount_center_pass_purchase: '购买次卡',
     discount_center_pass_purchase_desc: '为会员购买饮品次卡，享受优惠价格',
-    discount_center_pass_redeem: '核销优惠',
+    discount_center_pass_redeem: '核销次卡',
     discount_center_pass_redeem_desc: '使用会员的次卡进行消费核销',
 
     // --- 次卡操作选择 ---
@@ -108,6 +117,7 @@ export const I18N = {
     pass_redeem_no_available: '该会员暂无可用次卡，是否前往购买？',
     pass_redeem_go_purchase: '前往购买',
     pass_redeem_cart_not_empty: '购物车非空，请先清空购物车后再进入次卡核销',
+    pass_redeem_one_item_only: '核销模式下只能添加一杯饮品',
 
     // --- 优惠卡购买流程 ---
     discount_cards: '优惠卡',
@@ -349,12 +359,21 @@ export const I18N = {
 
     // --- 优惠中心 (Centro de Promociones) ---
     discount_center: 'Centro de Promociones',
+    discount_center_title: 'Centro de Promociones',
     discount_center_desc: 'Seleccione el tipo de promoción para ver detalles y comprar',
+    discount_center_select_category: 'Por favor, seleccione el tipo de promoción:',
+    discount_center_select_action: 'Por favor, seleccione el tipo de operación:',
+    discount_center_options: 'opciones',
+    back: 'Volver',
+
+    // --- 优惠中心 - 次卡分类 (Categoría de Tarjetas) ---
+    discount_center_pass_category: 'Tarjetas de Uso',
+    discount_center_pass_category_desc: 'Comprar y canjear tarjetas de bebidas',
     discount_center_pass: 'Tarjetas de Uso',
     discount_center_pass_desc: 'Compre tarjetas de uso de bebidas y disfrute de beneficios',
     discount_center_pass_purchase: 'Comprar Tarjeta',
     discount_center_pass_purchase_desc: 'Compre tarjetas de uso de bebidas para miembros con precios promocionales',
-    discount_center_pass_redeem: 'Canjear Beneficios',
+    discount_center_pass_redeem: 'Canjear Tarjeta',
     discount_center_pass_redeem_desc: 'Use las tarjetas del miembro para canjear consumos',
 
     // --- 次卡操作选择 (Selector de Acción de Tarjeta) ---
@@ -369,6 +388,7 @@ export const I18N = {
     pass_redeem_no_available: 'Este socio no tiene tarjetas disponibles. ¿Ir a comprar?',
     pass_redeem_go_purchase: 'Ir a Comprar',
     pass_redeem_cart_not_empty: 'El carrito no está vacío. Por favor, vacíelo antes de entrar en modo de canje',
+    pass_redeem_one_item_only: 'Solo se permite una bebida en modo de canje',
 
     // --- 优惠卡购买流程 (Tarjetas Promocionales) ---
     discount_cards: 'Tarjetas Promocionales',

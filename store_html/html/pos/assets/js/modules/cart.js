@@ -72,9 +72,16 @@ export function addToCart() {
     const isPassMode = STATE.activePassSession !== null;
     let unitPrice = parseFloat(variant.price_eur); // 基础价格
     let addonsForCart = []; // [B1.4 P2]
-    
+
     // [B1.4 P2] START: 核销模式下的加料定价
     if (isPassMode) {
+        // [核销模式限制] 一杯一单：购物车已有商品时禁止添加
+        if (STATE.cart.length > 0) {
+            toast(t('pass_redeem_one_item_only') || '核销模式下只能添加一杯饮品，请先结账或退出核销模式');
+            isAddingToCart = false;
+            return;
+        }
+
         // 在核销模式下，商品基础价格为 0
         unitPrice = 0.0; 
         
@@ -223,11 +230,34 @@ function deduplicateCart() {
     return duplicatesFound;
 }
 
+// [FIX] 防止 updateCartItem 在短时间内重复执行
+let lastUpdateTime = 0;
+let lastUpdateKey = '';
+const UPDATE_DEBOUNCE_MS = 300; // 300ms内的重复操作将被忽略
+
 /**
  * 更新购物车项目（数量或删除）
  * 在普通模式和核销模式下都允许正常的加减删操作
  */
 export function updateCartItem(itemId, action) {
+    const now = Date.now();
+    const updateKey = `${itemId}-${action}`;
+
+    // [FIX] 防抖保护：如果在300ms内对同一个商品执行相同操作，直接忽略
+    if (now - lastUpdateTime < UPDATE_DEBOUNCE_MS && lastUpdateKey === updateKey) {
+        console.error('========================================');
+        console.error('[updateCartItem] ⚠️⚠️⚠️ 重复操作被拦截！');
+        console.error(`[updateCartItem] 距离上次操作仅 ${now - lastUpdateTime}ms`);
+        console.error(`[updateCartItem] 操作: ${updateKey}`);
+        console.error('[updateCartItem] 这是事件被触发了两次的明确证据！');
+        console.trace('[updateCartItem] 调用堆栈：');
+        console.error('========================================');
+        return;
+    }
+
+    lastUpdateTime = now;
+    lastUpdateKey = updateKey;
+
     console.log('========================================');
     console.log('[updateCartItem] ********** 开始操作 **********');
     console.log('[updateCartItem] itemId:', itemId, 'action:', action);
@@ -269,6 +299,12 @@ export function updateCartItem(itemId, action) {
         STATE.cart.splice(itemIndex, 1);
         console.log('[updateCartItem] ✓ 删除商品');
     } else if (action === 'inc') {
+        // [核销模式限制] 一杯一单：禁止增加数量
+        if (STATE.activePassSession !== null) {
+            toast(t('pass_redeem_one_item_only') || '核销模式下只能添加一杯饮品，不能增加数量');
+            console.log('[updateCartItem] ⚠️ 核销模式下禁止增加数量');
+            return;
+        }
         STATE.cart[itemIndex].qty++;
         console.log(`[updateCartItem] ✓ qty++ => ${STATE.cart[itemIndex].qty} (从 ${qtyBefore} 变为 ${STATE.cart[itemIndex].qty})`);
     } else if (action === 'dec') {
