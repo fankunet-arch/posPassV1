@@ -34,6 +34,8 @@ import { checkShiftStatus, initializeShiftModals, handleStartShift, handleForceS
 import { openAvailabilityPanel, handleAvailabilityToggle, handleSoldOutDecisionKeep, handleSoldOutDecisionReset } from './modules/availability.js';
 // [优惠卡购买] 导入优惠卡模块
 import { initDiscountCardEvents } from './modules/discountCard.js';
+// [优惠中心] 导入优惠中心模块
+import { openDiscountCenter, initDiscountCenterEvents } from './modules/discountCenter.js';
 
 console.log("Modules imported successfully in main.js");
 
@@ -151,7 +153,36 @@ function bindEvents() {
   });
 
   // --- Product & Customization ---
-  $document.on('click', '#category_scroller .nav-link', function() { STATE.active_category_key = $(this).data('cat'); renderCategories(); renderProducts(); });
+  $document.on('click', '#category_scroller .nav-link', function() {
+    const categoryKey = $(this).data('cat');
+
+    // [DEBUG] 添加详细日志，帮助排查分类识别问题
+    console.log('[main] 分类点击事件触发');
+    console.log('[main] categoryKey =', categoryKey);
+    console.log('[main] categoryKey type =', typeof categoryKey);
+    console.log('[main] categoryKey.toUpperCase() =', categoryKey ? categoryKey.toUpperCase() : 'N/A');
+
+    // [优惠中心] 检查是否为优惠卡分类（优惠中心入口）
+    // 支持的 category_code 值（不区分大小写）
+    const discountCenterKeys = ['P_multi_pass', 'PASS', 'DISCOUNT_CARD', 'PROMO_CARD'];
+    const isDiscountCenterCategory = categoryKey && discountCenterKeys.some(key =>
+      key.toUpperCase() === categoryKey.toUpperCase()
+    );
+
+    console.log('[main] isDiscountCenterCategory =', isDiscountCenterCategory);
+
+    if (isDiscountCenterCategory) {
+      console.log('[main] ✅ 检测到优惠中心分类，打开优惠中心:', categoryKey);
+      openDiscountCenter();
+      return; // 不执行默认的商品加载逻辑
+    }
+
+    // 其他分类：正常加载商品
+    console.log('[main] 普通分类，加载商品');
+    STATE.active_category_key = categoryKey;
+    renderCategories();
+    renderProducts();
+  });
   $document.on('input', '#search_input', renderProducts);
   $document.on('click', '#clear_search', () => { $('#search_input').val('').trigger('input'); });
   $document.on('click', '.product-card', function() { openCustomize($(this).data('id')); });
@@ -410,6 +441,8 @@ document.addEventListener('DOMContentLoaded', () => {
     bindEvents();
     // [优惠卡购买] 初始化优惠卡事件
     initDiscountCardEvents();
+    // [优惠中心] 初始化优惠中心事件
+    initDiscountCenterEvents();
     initApplication();
     startClock();
 });

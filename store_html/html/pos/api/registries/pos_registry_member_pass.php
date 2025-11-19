@@ -393,7 +393,7 @@ function handle_pass_list(PDO $pdo, array $config, array $input_data): void {
     try {
         $sql = "
             SELECT
-                pass_plan_id,
+                pass_plan_id AS plan_id,
                 name,
                 name_zh,
                 name_es,

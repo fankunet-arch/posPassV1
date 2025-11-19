@@ -608,6 +608,25 @@ $cache_version = time();
     </div>
 </template>
 
+<!-- 优惠中心 Offcanvas -->
+<div class="offcanvas offcanvas-end offcanvas-sheet" tabindex="-1" id="discountCenterOffcanvas">
+  <div class="offcanvas-header">
+    <h5 class="offcanvas-title">
+      <i class="bi bi-gift"></i>
+      <span data-i18n="discount_center">优惠中心</span>
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+    <div class="p-3 border-bottom border-sheet">
+      <p class="small text-muted mb-0" data-i18n="discount_center_desc">选择优惠类型以查看详情和购买</p>
+    </div>
+    <div id="discount_center_types_list" class="list-group list-group-flush">
+      <!-- 优惠类型列表将由 discountCenter.js 动态渲染 -->
+    </div>
+  </div>
+</div>
+
 <!-- 优惠卡列表 Offcanvas -->
 <div class="offcanvas offcanvas-end offcanvas-sheet" tabindex="-1" id="discountCardsOffcanvas">
   <div class="offcanvas-header">

@@ -86,6 +86,12 @@ export const I18N = {
     redemption_incompatible: '积分兑换不能与优惠券同时使用。',
     redemption_applied: '已兑换',
 
+    // --- 优惠中心 ---
+    discount_center: '优惠中心',
+    discount_center_desc: '选择优惠类型以查看详情和购买',
+    discount_center_pass: '次卡',
+    discount_center_pass_desc: '购买饮品次卡，享受优惠',
+
     // --- 优惠卡购买流程 ---
     discount_cards: '优惠卡',
     discount_cards_desc: '浏览可购买的优惠卡，点击查看详情。',
@@ -321,6 +327,12 @@ export const I18N = {
     points_redeem_button: 'Canjear',
     points_insufficient: 'Puntos insuficientes para canjear.',
     redemption_applied: 'Canjeado',
+
+    // --- 优惠中心 (Centro de Promociones) ---
+    discount_center: 'Centro de Promociones',
+    discount_center_desc: 'Seleccione el tipo de promoción para ver detalles y comprar',
+    discount_center_pass: 'Tarjetas de Uso',
+    discount_center_pass_desc: 'Compre tarjetas de uso de bebidas y disfrute de beneficios',
 
     // --- 优惠卡购买流程 (Tarjetas Promocionales) ---
     discount_cards: 'Tarjetas Promocionales',

@@ -15,8 +15,20 @@ let secondaryPhoneInput = null; // 二次验证的手机号
  * 打开优惠卡列表
  */
 export async function openDiscountCardsPanel() {
-    const offcanvas = new bootstrap.Offcanvas(document.getElementById('discountCardsOffcanvas'));
+    console.log('[discountCard] ====== 打开优惠卡列表面板 ======');
+
+    // 检查 Offcanvas 元素是否存在
+    const offcanvasEl = document.getElementById('discountCardsOffcanvas');
+    if (!offcanvasEl) {
+        console.error('[discountCard] ❌ 错误：未找到 #discountCardsOffcanvas 元素');
+        alert('错误：优惠卡面板未找到，请联系技术支持');
+        return;
+    }
+
+    console.log('[discountCard] ✅ 找到 Offcanvas 元素');
+    const offcanvas = new bootstrap.Offcanvas(offcanvasEl);
     offcanvas.show();
+    console.log('[discountCard] ✅ Offcanvas 已显示');
 
     // 加载优惠卡列表
     await loadDiscountCardsList();
@@ -26,29 +38,51 @@ export async function openDiscountCardsPanel() {
  * 加载优惠卡列表
  */
 async function loadDiscountCardsList() {
+    console.log('[discountCard] 开始加载优惠卡列表');
+
+    // [关键修复] 检查容器元素是否存在
     const container = document.getElementById('discount_cards_list');
+    if (!container) {
+        console.error('[discountCard] ❌ 错误：未找到 #discount_cards_list 元素');
+        console.error('[discountCard] 请检查 index.php 中 discountCardsOffcanvas 面板的 HTML 结构');
+        alert('错误：优惠卡列表容器未找到，请联系技术支持');
+        return;
+    }
+
+    console.log('[discountCard] ✅ 找到列表容器元素');
     container.innerHTML = '<div class="text-center p-4"><div class="spinner-border"></div></div>';
 
     try {
+        console.log('[discountCard] 准备发起 API 请求: api/pos_api_gateway.php?res=pass&act=list');
+
         const response = await fetch('api/pos_api_gateway.php?res=pass&act=list', {
             method: 'GET',
             credentials: 'same-origin'
         });
 
+        console.log('[discountCard] API 响应状态:', response.status, response.statusText);
+
         if (!response.ok) {
-            throw new Error('Failed to load discount cards');
+            throw new Error(`HTTP ${response.status}: Failed to load discount cards`);
         }
 
         const data = await response.json();
+        console.log('[discountCard] API 返回数据:', data);
 
         if (data.status === 'success' && data.data && data.data.length > 0) {
+            console.log('[discountCard] 找到', data.data.length, '张优惠卡');
             renderDiscountCardsList(data.data);
         } else {
+            console.log('[discountCard] 暂无可售优惠卡');
             container.innerHTML = `<div class="text-center p-4 text-muted"><p data-i18n="no_discount_cards">${t('no_discount_cards')}</p></div>`;
         }
     } catch (error) {
-        console.error('[discountCard] Failed to load cards:', error);
-        container.innerHTML = `<div class="text-center p-4 text-danger"><p>加载失败，请稍后重试</p></div>`;
+        console.error('[discountCard] ❌ 加载失败:', error);
+        console.error('[discountCard] 错误详情:', error.message, error.stack);
+
+        if (container) {
+            container.innerHTML = `<div class="text-center p-4 text-danger"><p>加载失败，请稍后重试</p><small class="text-muted d-block mt-2">${error.message}</small></div>`;
+        }
     }
 }
 
