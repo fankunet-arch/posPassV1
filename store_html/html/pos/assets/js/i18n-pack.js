@@ -91,6 +91,23 @@ export const I18N = {
     discount_center_desc: '选择优惠类型以查看详情和购买',
     discount_center_pass: '次卡',
     discount_center_pass_desc: '购买饮品次卡，享受优惠',
+    discount_center_pass_purchase: '购买次卡',
+    discount_center_pass_purchase_desc: '为会员购买饮品次卡，享受优惠价格',
+    discount_center_pass_redeem: '核销优惠',
+    discount_center_pass_redeem_desc: '使用会员的次卡进行消费核销',
+
+    // --- 次卡操作选择 ---
+    pass_action_selector_prompt: '请选择操作类型：',
+    pass_action_purchase_title: '购买次卡',
+    pass_action_purchase_desc: '为会员购买饮品次卡，享受优惠',
+    pass_action_redeem_title: '使用次卡',
+    pass_action_redeem_desc: '使用会员的次卡核销饮品',
+
+    // --- 次卡核销提示 ---
+    pass_redeem_no_member: '请先绑定会员后使用次卡',
+    pass_redeem_no_available: '该会员暂无可用次卡，是否前往购买？',
+    pass_redeem_go_purchase: '前往购买',
+    pass_redeem_cart_not_empty: '购物车非空，请先清空购物车后再进入次卡核销',
 
     // --- 优惠卡购买流程 ---
     discount_cards: '优惠卡',
@@ -164,6 +181,7 @@ export const I18N = {
     pass_exit_session_btn: '退出核销模式',
     pass_session_toast_enter: '已进入核销模式。仅显示可核销商品。',
     pass_session_toast_exit: '已退出核销模式。',
+    pass_redeem_mode_active: '⚠️ 当前处于【次卡核销模式】',
     
     // --- [B1.4 P2] Addon I18N ---
     pass_addon_free: '免费',
@@ -304,6 +322,7 @@ export const I18N = {
     pass_exit_session_btn: 'Salir de Modo Canje',
     pass_session_toast_enter: 'Modo Canje activado. Mostrando solo productos canjeables.',
     pass_session_toast_exit: 'Modo Canje desactivado.',
+    pass_redeem_mode_active: '⚠️ En【Modo de Canje de Pases】',
     
     // --- [B1.4 P2] Addon I18N ---
     pass_addon_free: 'GRATIS',
@@ -333,6 +352,23 @@ export const I18N = {
     discount_center_desc: 'Seleccione el tipo de promoción para ver detalles y comprar',
     discount_center_pass: 'Tarjetas de Uso',
     discount_center_pass_desc: 'Compre tarjetas de uso de bebidas y disfrute de beneficios',
+    discount_center_pass_purchase: 'Comprar Tarjeta',
+    discount_center_pass_purchase_desc: 'Compre tarjetas de uso de bebidas para miembros con precios promocionales',
+    discount_center_pass_redeem: 'Canjear Beneficios',
+    discount_center_pass_redeem_desc: 'Use las tarjetas del miembro para canjear consumos',
+
+    // --- 次卡操作选择 (Selector de Acción de Tarjeta) ---
+    pass_action_selector_prompt: 'Por favor, seleccione el tipo de operación:',
+    pass_action_purchase_title: 'Comprar Tarjeta',
+    pass_action_purchase_desc: 'Comprar tarjetas de uso de bebidas para socios',
+    pass_action_redeem_title: 'Usar Tarjeta',
+    pass_action_redeem_desc: 'Canjear bebidas usando la tarjeta del socio',
+
+    // --- 次卡核销提示 (Avisos de Canje) ---
+    pass_redeem_no_member: 'Por favor, vincule un socio antes de usar la tarjeta',
+    pass_redeem_no_available: 'Este socio no tiene tarjetas disponibles. ¿Ir a comprar?',
+    pass_redeem_go_purchase: 'Ir a Comprar',
+    pass_redeem_cart_not_empty: 'El carrito no está vacío. Por favor, vacíelo antes de entrar en modo de canje',
 
     // --- 优惠卡购买流程 (Tarjetas Promocionales) ---
     discount_cards: 'Tarjetas Promocionales',

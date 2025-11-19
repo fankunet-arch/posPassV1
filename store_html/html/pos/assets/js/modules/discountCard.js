@@ -26,7 +26,7 @@ export async function openDiscountCardsPanel() {
     }
 
     console.log('[discountCard] ✅ 找到 Offcanvas 元素');
-    const offcanvas = new bootstrap.Offcanvas(offcanvasEl);
+    const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(offcanvasEl);
     offcanvas.show();
     console.log('[discountCard] ✅ Offcanvas 已显示');
 

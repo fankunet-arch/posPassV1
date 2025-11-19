@@ -45,6 +45,58 @@ console.log("Modules imported successfully in main.js");
 
 
 /**
+ * [PASS_REDEEM] 统一的次卡核销模式入口函数
+ * 供多处调用：会员侧边栏的"使用"按钮、优惠中心的"使用次卡"选项
+ * @param {Object} pass - 要使用的次卡对象
+ */
+export function startPassRedemptionSession(pass) {
+    if (!pass) {
+        console.error('[PASS_REDEEM] startPassRedemptionSession: pass is null or undefined');
+        return;
+    }
+
+    // [FIX] 购物车非空时禁止进入核销模式
+    if (STATE.cart && STATE.cart.length > 0) {
+        console.warn('[PASS_REDEEM] 购物车非空，拒绝进入核销模式');
+        toast(t('pass_redeem_cart_not_empty'));
+        return;
+    }
+
+    console.log('[PASS_REDEEM] 进入核销模式，次卡:', pass);
+
+    // 设置核销会话
+    STATE.activePassSession = pass;
+    STATE.cart = []; // 清空购物车（此时已确认为空）
+
+    // 刷新各个 UI 组件
+    calculatePromotions(); // 刷新购物车UI (会调用 refreshCartUI)
+    updateMemberUI();      // 刷新会员UI (显示"正在核销")
+    renderCategories();    // 刷新分类 (禁用)
+    renderProducts();      // 刷新产品 (只显示白名单)
+
+    // 显示提示
+    toast(t('pass_session_toast_enter'));
+
+    // [FIX] 关闭所有可能打开的侧边栏和 Modal，并移除遗留的 backdrop
+    const cartOffcanvas = bootstrap.Offcanvas.getInstance('#cartOffcanvas');
+    const passActionModal = bootstrap.Modal.getInstance('#passActionSelectorModal');
+    const discountCenterOffcanvas = bootstrap.Offcanvas.getInstance('#discountCenterOffcanvas');
+
+    if (cartOffcanvas) cartOffcanvas.hide();
+    if (passActionModal) passActionModal.hide();
+    if (discountCenterOffcanvas) discountCenterOffcanvas.hide();
+
+    // [FIX] 强制移除所有可能遗留的 backdrop 遮罩层
+    // 这是为了防止遮罩层遮挡商品卡片导致无法点击
+    setTimeout(() => {
+        const backdrops = document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop');
+        backdrops.forEach(backdrop => backdrop.remove());
+        console.log('[PASS_REDEEM] 已清理', backdrops.length, '个遗留的 backdrop 遮罩层');
+    }, 500); // 延迟 500ms 确保关闭动画完成
+}
+
+
+/**
  * Starts a clock to update the time in the navbar every second.
  */
 function startClock() {
@@ -108,8 +160,17 @@ function showUnclosedEodOverlay(unclosedDate) {
 }
 
 
+// [FIX] 防止事件重复绑定标志
+let eventsAlreadyBound = false;
+
 function bindEvents() {
-  console.log("Binding events..."); 
+  if (eventsAlreadyBound) {
+    console.error('⚠️⚠️⚠️ 事件已经绑定过了！检测到重复绑定尝试，已阻止。');
+    console.trace('重复绑定调用堆栈：');
+    return;
+  }
+  eventsAlreadyBound = true;
+  console.log("Binding events...");
 
   const $document = $(document);
 
@@ -249,17 +310,10 @@ function bindEvents() {
   $document.on('click', '.btn-start-pass-redeem', function() {
       const passId = parseInt($(this).data('pass-id'));
       if (!STATE.activeMember || !STATE.activeMember.passes) return;
-      
+
       const pass = STATE.activeMember.passes.find(p => p.pass_id === passId);
       if (pass) {
-          STATE.activePassSession = pass;
-          STATE.cart = []; // 清空购物车
-          calculatePromotions(); // 刷新购物车UI (会调用 refreshCartUI)
-          updateMemberUI();      // 刷新会员UI (显示“正在核销”)
-          renderCategories();    // 刷新分类 (禁用)
-          renderProducts();      // 刷新产品 (只显示白名单)
-          toast(t('pass_session_toast_enter'));
-          bootstrap.Offcanvas.getInstance('#cartOffcanvas')?.hide();
+          startPassRedemptionSession(pass);
       }
   });
 
@@ -434,7 +488,18 @@ async function initApplication() {
 }
 
 // --- Main Execution ---
+// [FIX] 防止重复初始化（脚本被加载两次时）
+let isInitialized = false;
+
 document.addEventListener('DOMContentLoaded', () => {
+    if (isInitialized) {
+        console.error('⚠️⚠️⚠️ POS 已经初始化过了！检测到重复初始化尝试，已阻止。');
+        console.trace('重复初始化调用堆栈：');
+        return;
+    }
+    isInitialized = true;
+    console.log('✓ POS 开始初始化...');
+
     initializeShiftModals();
     // [GEMINI 瘦身] 启动交接班完成弹窗的监听器
     initShiftHandoverListener();

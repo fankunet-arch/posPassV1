@@ -117,6 +117,13 @@ $cache_version = time();
               <div class="mt-2">
                   <span data-i18n="member_points">积分</span>: <span class="fw-bold" id="member_points">0</span>
               </div>
+
+              <!-- 次卡列表区域 -->
+              <div id="available_passes_container" class="mt-3">
+                  <h6 class="small fw-bold text-muted mb-2" data-i18n="pass_available_passes">可用次卡</h6>
+                  <div id="available_passes_list" class="list-group list-group-flush"></div>
+              </div>
+
               <div id="available_rewards_list" class="list-group list-group-flush mt-2"></div>
           </div>
       </div>
@@ -733,6 +740,56 @@ $cache_version = time();
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="cancel">取消</button>
         <button type="submit" form="phone_verification_form" class="btn btn-primary" data-i18n="verify_and_continue">验证并继续</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 次卡操作选择 Modal -->
+<div class="modal fade" id="passActionSelectorModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content modal-sheet">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-credit-card-2-front me-2 text-brand"></i>
+          <span data-i18n="discount_center_pass">次卡</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-3" data-i18n="pass_action_selector_prompt">请选择操作类型：</p>
+
+        <!-- 购买次卡选项 -->
+        <div class="card mb-3 border-primary" style="cursor: pointer;" id="btn_pass_action_purchase">
+          <div class="card-body d-flex align-items-center">
+            <div class="flex-shrink-0 me-3">
+              <i class="bi bi-cart-plus fs-1 text-primary"></i>
+            </div>
+            <div class="flex-grow-1">
+              <h6 class="mb-1" data-i18n="pass_action_purchase_title">购买次卡</h6>
+              <small class="text-muted" data-i18n="pass_action_purchase_desc">为会员购买饮品次卡，享受优惠</small>
+            </div>
+            <div class="flex-shrink-0">
+              <i class="bi bi-chevron-right fs-4 text-muted"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 使用次卡选项 -->
+        <div class="card border-success" style="cursor: pointer;" id="btn_pass_action_redeem">
+          <div class="card-body d-flex align-items-center">
+            <div class="flex-shrink-0 me-3">
+              <i class="bi bi-check-circle fs-1 text-success"></i>
+            </div>
+            <div class="flex-grow-1">
+              <h6 class="mb-1" data-i18n="pass_action_redeem_title">使用次卡</h6>
+              <small class="text-muted" data-i18n="pass_action_redeem_desc">使用会员的次卡核销饮品</small>
+            </div>
+            <div class="flex-shrink-0">
+              <i class="bi bi-chevron-right fs-4 text-muted"></i>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

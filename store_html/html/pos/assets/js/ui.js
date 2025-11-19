@@ -69,7 +69,8 @@ export function openCustomize(productId) {
         return;
     }
 
-    const customizeOffcanvas = new bootstrap.Offcanvas('#customizeOffcanvas');
+    // Use getOrCreateInstance to avoid creating multiple instances
+    const customizeOffcanvas = bootstrap.Offcanvas.getOrCreateInstance('#customizeOffcanvas');
     const $canvas = $('#customizeOffcanvas');
 
     // 1. 绑定产品数据
@@ -307,24 +308,23 @@ export function updateCustomizePrice() {
 
 /**
  * 渲染分类列表
- * [B1.4 PASS] 增加核销模式逻辑
+ * [B1.4 PASS] 修复：核销模式下分类应可正常切换
  */
 export function renderCategories() {
     const $container = $('#category_scroller');
     if (!$container.length) return;
-    
+
     $container.empty();
-    
-    const isPassMode = STATE.activePassSession !== null;
+
+    // [FIX] 移除核销模式下禁用分类的逻辑
+    // 核销模式下应该允许切换分类，只是在 renderProducts() 中过滤白名单商品
+    // const isPassMode = STATE.activePassSession !== null;
 
     STATE.categories.forEach(cat => {
-        // [B1.4 PASS] 在核销模式下，禁用所有分类按钮
-        const isDisabled = isPassMode;
-        
         $container.append(`
             <li class="nav-item">
-                <a class="nav-link ${cat.key === STATE.active_category_key ? 'active' : ''} ${isDisabled ? 'disabled' : ''}" 
-                   href="#" 
+                <a class="nav-link ${cat.key === STATE.active_category_key ? 'active' : ''}"
+                   href="#"
                    data-cat="${cat.key}">
                     ${lang() === 'es' ? cat.label_es : cat.label_zh}
                 </a>
@@ -408,7 +408,7 @@ export function renderProducts() {
 export function refreshCartUI() {
     const $cartItems = $('#cart_items').empty();
     const $cartFooter = $('#cart_footer');
-    
+
     if (STATE.cart.length === 0) {
         $cartItems.html(`<div class="alert alert-sheet">${t('tip_empty_cart')}</div>`);
         $cartFooter.hide();
@@ -465,7 +465,7 @@ export function refreshCartUI() {
                         <div class="fw-bold">${fmtEUR(item.unit_price_eur * item.qty)}</div>
                         <div class="qty-stepper mt-1">
                             <button class="btn btn-sm btn-outline-secondary" data-act="del" data-id="${item.id}"><i class="bi bi-trash"></i></button>
-                            <button class_name="btn btn-sm btn-outline-secondary" data-act="dec" data-id="${item.id}"><i class="bi bi-dash"></i></button>
+                            <button class="btn btn-sm btn-outline-secondary" data-act="dec" data-id="${item.id}"><i class="bi bi-dash"></i></button>
                             <span class="px-1">${item.qty}</span>
                             <button class="btn btn-sm btn-outline-secondary" data-act="inc" data-id="${item.id}"><i class="bi bi-plus"></i></button>
                         </div>
@@ -535,8 +535,9 @@ function renderAvailablePasses(passes = []) {
                         ${expiresText ? ` | ${expiresText}` : ''}
                     </small>
                 </div>
-                <button class="btn btn-sm ${isCurrentSessionPass ? 'btn-danger' : 'btn-brand-soft'} ${isPassMode ? 'disabled' : 'btn-start-pass-redeem'}" 
-                        data-pass-id="${pass.pass_id}">
+                <button class="btn ${isCurrentSessionPass ? 'btn-danger' : 'btn-brand'} ${isPassMode ? 'disabled' : 'btn-start-pass-redeem'} fw-bold"
+                        data-pass-id="${pass.pass_id}" style="${isCurrentSessionPass ? '' : 'min-width: 80px;'}">
+                    <i class="bi ${isCurrentSessionPass ? 'bi-check-circle' : 'bi-arrow-right-circle'} me-1"></i>
                     ${isCurrentSessionPass ? t('pass_in_session_title') : t('pass_use_btn')}
                 </button>
             </div>
@@ -554,7 +555,7 @@ function renderAvailablePasses(passes = []) {
 export function updateMemberUI() {
     const $container = $('#member_section');
     const isPassMode = STATE.activePassSession !== null;
-    
+
     // [B1.4] 核销模式下，隐藏积分和优惠券
     $('#points_redemption_section').toggle(!isPassMode);
     $('#coupon_code_input').closest('.input-group').toggle(!isPassMode);
@@ -570,19 +571,40 @@ export function updateMemberUI() {
 
         // [B1.3] 调用次卡渲染
         renderAvailablePasses(STATE.activeMember.passes);
-        
-        // [B1.4] 如果在核销模式，显示退出按钮
+
+        // [B1.4 FIX] 核销模式下的 UI 改进
+        // 移除之前可能存在的核销模式标识和退出按钮
+        $('#pass_redeem_mode_badge').remove();
+        $('#btn_exit_pass_mode').remove();
+
         if (isPassMode) {
+            // 隐藏"解除关联"按钮
             $container.find('#btn_unlink_member').hide();
-            // 在列表后追加一个“退出”按钮
+
+            // 在会员姓名下方插入醒目的核销模式标识
+            const badgeText = t('pass_redeem_mode_active');
+            const badgeHtml = `
+                <div id="pass_redeem_mode_badge" class="alert alert-warning border-warning p-2 mt-2 mb-0">
+                    <i class="bi bi-credit-card-2-front me-1"></i>
+                    <strong>${badgeText}</strong>
+                </div>
+            `;
+            $container.find('#member_info > div:first').after(badgeHtml);
+
+            // 在次卡列表后追加"退出核销"按钮
             const $exitBtn = $(`
                 <button class="btn btn-sm btn-danger w-100 mt-2" id="btn_exit_pass_mode">
                     <i class="bi bi-x-circle me-1"></i> ${t('pass_exit_session_btn')}
                 </button>
             `);
-            $('#available_passes_list').append($exitBtn);
+            $('#available_passes_list').after($exitBtn);
+
+            // 隐藏积分兑换区域（已经在上面处理）
+            $('#available_rewards_list').hide();
         } else {
+            // 普通模式：显示"解除关联"按钮
             $container.find('#btn_unlink_member').show();
+            $('#available_rewards_list').show();
         }
 
     } else {
@@ -592,9 +614,13 @@ export function updateMemberUI() {
         $('#points_to_redeem_input').val('').prop('disabled', true);
         $('#apply_points_btn').prop('disabled', true);
         $('#points_feedback').text('');
-        
+
         // [B1.3] 清空次卡
         renderAvailablePasses([]);
+
+        // 清理可能残留的核销模式标识
+        $('#pass_redeem_mode_badge').remove();
+        $('#btn_exit_pass_mode').remove();
     }
     // 渲染积分兑换规则
     renderRedemptionRules();

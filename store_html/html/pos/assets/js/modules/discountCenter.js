@@ -11,21 +11,30 @@
 import { STATE } from '../state.js';
 import { t, toast } from '../utils.js';
 import { openDiscountCardsPanel } from './discountCard.js';
+import { startPassRedemptionSession } from '../main.js';
 
 /**
  * 优惠类型配置 (可扩展)
- * 结构：{ key: string, label_i18n_key: string, handler: function }
+ * 结构：{ key: string, label_i18n_key: string, icon: string, handler: function }
  */
 const DISCOUNT_TYPES = [
     {
-        key: 'pass',
-        label_i18n_key: 'discount_center_pass', // "次卡"
+        key: 'pass_purchase',
+        label_i18n_key: 'discount_center_pass_purchase', // "购买次卡"
+        icon: 'bi-cart-plus',
         handler: handlePassPurchase
+    },
+    {
+        key: 'pass_redeem',
+        label_i18n_key: 'discount_center_pass_redeem', // "核销优惠"
+        icon: 'bi-credit-card-2-front',
+        handler: handlePassRedeem
     }
     // 未来可以添加更多类型，例如：
     // {
     //     key: 'voucher',
     //     label_i18n_key: 'discount_center_voucher',
+    //     icon: 'bi-ticket-perforated',
     //     handler: handleVoucherPurchase
     // }
 ];
@@ -55,7 +64,7 @@ export function openDiscountCenter() {
     // 打开 Offcanvas
     console.log('[discountCenter] 打开 Bootstrap Offcanvas');
     try {
-        const offcanvas = new bootstrap.Offcanvas(offcanvasEl);
+        const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(offcanvasEl);
         offcanvas.show();
         console.log('[discountCenter] ✅ Offcanvas 已显示');
     } catch (error) {
@@ -88,7 +97,7 @@ function renderDiscountTypes() {
 
         typeItem.innerHTML = `
             <div class="d-flex align-items-center">
-                <i class="bi bi-credit-card-2-front fs-4 me-3 text-brand"></i>
+                <i class="bi ${type.icon} fs-4 me-3 text-brand"></i>
                 <div>
                     <h6 class="mb-0" data-i18n="${type.label_i18n_key}">${t(type.label_i18n_key)}</h6>
                     <small class="text-muted" data-i18n="${type.label_i18n_key}_desc">${t(type.label_i18n_key + '_desc')}</small>
@@ -108,11 +117,11 @@ function renderDiscountTypes() {
 }
 
 /**
- * 处理次卡购买
- * 调用现有的 discountCard.js 模块
+ * 处理次卡购买操作
+ * 直接打开次卡购买列表
  */
 function handlePassPurchase() {
-    console.log('[discountCenter] 进入次卡购买流程');
+    console.log('[discountCenter] 用户选择：购买次卡');
 
     // 关闭优惠中心面板
     const centerOffcanvas = bootstrap.Offcanvas.getInstance(document.getElementById('discountCenterOffcanvas'));
@@ -120,10 +129,71 @@ function handlePassPurchase() {
         centerOffcanvas.hide();
     }
 
-    // 延迟打开次卡列表，等待优惠中心面板关闭动画完成
+    // 延迟打开次卡购买列表
     setTimeout(() => {
         openDiscountCardsPanel();
     }, 300);
+}
+
+/**
+ * 处理次卡核销操作
+ * 统一的核销优惠入口
+ */
+function handlePassRedeem() {
+    console.log('[discountCenter] 用户选择：核销优惠');
+
+    // 关闭优惠中心面板
+    const centerOffcanvas = bootstrap.Offcanvas.getInstance(document.getElementById('discountCenterOffcanvas'));
+    if (centerOffcanvas) {
+        centerOffcanvas.hide();
+    }
+
+    // 延迟执行检查逻辑，等待优惠中心面板关闭动画完成
+    setTimeout(() => {
+        // 1. 检查是否已绑定会员
+        if (!STATE.activeMember) {
+            console.log('[discountCenter] 未绑定会员，提示用户');
+            toast(t('pass_redeem_no_member'));
+
+            // 引导用户打开购物车侧边栏进行会员绑定
+            setTimeout(() => {
+                const cartOffcanvas = bootstrap.Offcanvas.getOrCreateInstance(document.getElementById('cartOffcanvas'));
+                cartOffcanvas.show();
+
+                // 聚焦到会员搜索框
+                setTimeout(() => {
+                    document.getElementById('member_search_phone')?.focus();
+                }, 500);
+            }, 100);
+
+            return;
+        }
+
+        // 2. 检查会员是否有可用次卡
+        const availablePasses = STATE.activeMember.passes?.filter(p => p.remaining_uses > 0) || [];
+        if (availablePasses.length === 0) {
+            console.log('[discountCenter] 会员无可用次卡，提示并询问是否购买');
+
+            // 显示确认对话框
+            if (confirm(t('pass_redeem_no_available'))) {
+                // 用户选择前往购买
+                handlePassPurchase();
+            }
+
+            return;
+        }
+
+        // 3. 会员有可用次卡，选择第一张进入核销模式
+        console.log('[discountCenter] 会员有', availablePasses.length, '张可用次卡');
+
+        // 如果只有一张次卡，直接使用
+        // 如果有多张次卡，使用第一张（未来可以优化为让用户选择）
+        const selectedPass = availablePasses[0];
+        console.log('[discountCenter] 选择次卡:', selectedPass);
+
+        // 调用统一的核销模式入口函数
+        startPassRedemptionSession(selectedPass);
+    }, 350);
 }
 
 /**
@@ -133,8 +203,5 @@ function handlePassPurchase() {
 export function initDiscountCenterEvents() {
     console.log('[discountCenter] ====== 初始化优惠中心模块 ======');
     console.log('[discountCenter] 优惠类型配置:', DISCOUNT_TYPES);
-    console.log('[discountCenter] 模块加载完成，等待分类点击触发');
-
-    // 目前不需要额外的事件绑定
-    // openDiscountCenter() 会在分类点击时被调用
+    console.log('[discountCenter] 模块加载完成，优惠中心已配置', DISCOUNT_TYPES.length, '个入口');
 }
