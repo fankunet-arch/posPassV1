@@ -590,3 +590,20 @@ if (!function_exists('validate_redeem_limits')) {
         }
     }
 }
+
+// [FIX 500 ERROR 2025-11-19] 新增：P0 售卡限制检查（占位实现）
+if (!function_exists('check_pass_purchase_limits')) {
+    /**
+     * P0 售卡：检查购买限制
+     * B1 阶段简化：暂不实现复杂的限制（如每人每日购买上限等）
+     * 此函数作为占位符，供未来扩展使用
+     */
+    function check_pass_purchase_limits(PDO $pdo, int $member_id, array $plan_details): void {
+        // B1 阶段：不实施任何限制，直接返回
+        // TODO: 未来可在此处添加限制逻辑：
+        // - 检查会员当日购买次数
+        // - 检查会员持卡总数上限
+        // - 检查特定卡种的购买限制
+        return;
+    }
+}

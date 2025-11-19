@@ -153,6 +153,28 @@ if (!function_exists('get_addons_with_tags')) {
 
 
 /* -------------------------------------------------------------------------- */
+/* [B1.2] 会员 (MEMBER) 核心业务逻辑                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * [FIX 500 ERROR 2025-11-19] 通过 ID 查询会员
+ * 用于售卡流程（handle_pass_purchase）
+ */
+if (!function_exists('get_member_by_id')) {
+    function get_member_by_id(PDO $pdo, int $member_id): ?array {
+        $stmt = $pdo->prepare("
+            SELECT m.*, ml.level_name_zh, ml.level_name_es
+            FROM pos_members m
+            LEFT JOIN pos_member_levels ml ON m.member_level_id = ml.id
+            WHERE m.id = ? AND m.is_active = 1
+        ");
+        $stmt->execute([$member_id]);
+        $member = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $member ?: null;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
 /* [B1.2] 次卡 (PASS) 核心业务逻辑                                      */
 /* -------------------------------------------------------------------------- */
 
