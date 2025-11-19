@@ -231,10 +231,28 @@ try {
     }
     echo "P4 PASSED: Slip data 'remaining_uses' ({$slip_data['remaining_uses']}) is correct.\n";
 
-    // 6. 回滚
+    // 6. [NEW] Test idempotency
+    echo "\n=== Testing Idempotency ===\n";
+    echo "Attempting to redeem with SAME idempotency_key...\n";
+
+    // Use the same idempotency_key
+    $result_2 = create_redeem_records(
+        $pdo, $context, $alloc, $mock_cart, $tags_map, $addon_defs, $mock_payment_summary
+    );
+
+    if (!isset($result_2['idempotency_used']) || !$result_2['idempotency_used']) {
+        throw new Exception("IDEMPOTENCY TEST FAILED: Should have returned cached result");
+    }
+
+    echo "IDEMPOTENCY TEST PASSED: Returned cached result without duplicate processing\n";
+    echo "  - invoice_tp: " . ($result_2['invoice_number_tp'] ?: 'null') . "\n";
+    echo "  - invoice_vr: " . ($result_2['invoice_number_vr'] ?: 'null') . "\n";
+    echo "  - print_jobs: " . count($result_2['print_jobs']) . " (should be 0 for cached result)\n";
+
+    // 7. 回滚
     echo "\nRolling back transaction...\n";
     $pdo->rollBack();
-    
+
     $duration = microtime(true) - $test_start_time;
     echo "\n--- [P3 TEST SUCCESS] (Rolled Back) ---";
     echo "\nDuration: " . number_format($duration * 1000, 2) . " ms\n";

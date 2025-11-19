@@ -304,9 +304,10 @@ if (!function_exists('create_redeem_records')) {
     /**
      * [B1.4 P3/P4] P3 核销：创建核销记录（事务）
      * [B1.5 ERROR 1 FIX] 修复了合规数据调用
+     * [FIX 2025-11-19] 实现完整的幂等性支持
      */
     function create_redeem_records(PDO $pdo, array $context, array $alloc, array $cart, array $tags_map, array $addon_defs, array $payment_summary): array {
-        
+
         // 1. 获取上下文
         $store_id  = $context['store_id'];
         $user_id   = $context['user_id'];
@@ -314,9 +315,70 @@ if (!function_exists('create_redeem_records')) {
         $member_id = $context['member_id'];
         $pass_id   = $context['pass_id']; // 正在使用的 member_pass_id
         $idempotency_key = $context['idempotency_key']; // 幂等键
-        
+
         $store_config = $context['store_config'];
         $vat_rate = $context['vat_rate'];
+
+        // 1a. [IDEMPOTENCY] 检查是否已经处理过这个请求
+        error_log("[PASS_REDEEM] Checking idempotency for key: {$idempotency_key}, pass_id: {$pass_id}");
+
+        $sql_check_batch = "
+            SELECT
+                prb.batch_id,
+                prb.redeemed_uses,
+                prb.extra_charge_total,
+                prb.order_id,
+                pi.series,
+                pi.number,
+                pi.compliance_data
+            FROM pass_redemption_batches prb
+            LEFT JOIN pos_invoices pi ON prb.order_id = pi.id
+            WHERE prb.member_pass_id = ?
+              AND prb.idempotency_key = ?
+            LIMIT 1
+        ";
+        $stmt_check = $pdo->prepare($sql_check_batch);
+        $stmt_check->execute([$pass_id, $idempotency_key]);
+        $existing_batch = $stmt_check->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing_batch) {
+            // 已经处理过这个请求，直接返回之前的结果
+            error_log("[PASS_REDEEM] Idempotency hit: batch_id={$existing_batch['batch_id']}, returning cached result");
+
+            // 构造返回结果（与首次处理时的格式一致）
+            $invoice_number_tp = null;
+            $invoice_number_vr = null;
+            $qr_payload_tp = null;
+
+            if ($existing_batch['order_id'] && $existing_batch['series'] && $existing_batch['number']) {
+                $invoice_number_tp = $existing_batch['series'] . '-' . $existing_batch['number'];
+                if ($existing_batch['compliance_data']) {
+                    $compliance_data = json_decode($existing_batch['compliance_data'], true);
+                    $qr_payload_tp = $compliance_data['qr_content'] ?? null;
+                }
+            } else {
+                // 0元凭条，需要从其他地方查询 VR 号
+                // 简化处理：通过 pass_redemptions 表查询
+                $sql_vr = "SELECT invoice_series, invoice_number FROM pass_redemptions WHERE batch_id = ? LIMIT 1";
+                $stmt_vr = $pdo->prepare($sql_vr);
+                $stmt_vr->execute([$existing_batch['batch_id']]);
+                $vr_info = $stmt_vr->fetch(PDO::FETCH_ASSOC);
+                if ($vr_info) {
+                    $invoice_number_vr = $vr_info['invoice_series'] . '-' . $vr_info['invoice_number'];
+                }
+            }
+
+            return [
+                'invoice_id_tp'     => $existing_batch['order_id'],
+                'invoice_number_tp' => $invoice_number_tp,
+                'invoice_number_vr' => $invoice_number_vr,
+                'qr_content_tp'     => $qr_payload_tp,
+                'print_jobs'        => [], // 不重复生成打印任务
+                'idempotency_used'  => true // 标记这是幂等返回
+            ];
+        }
+
+        error_log("[PASS_REDEEM] Starting redeem transaction for member_id={$member_id}, pass_id={$pass_id}, idempotency_key={$idempotency_key}");
         
         // 2. 获取时间
         // [A2 UTC SYNC] 依赖 datetime_helper.php
@@ -395,15 +457,17 @@ if (!function_exists('create_redeem_records')) {
         }
         
         // 5. (P3) 写入核销批次 (pass_redemption_batches)
+        // [FIX 2025-11-19] 添加 idempotency_key 以支持幂等性
         $sql_batch = "
-            INSERT INTO pass_redemption_batches 
-                (member_pass_id, order_id, redeemed_uses, extra_charge_total, store_id, cashier_user_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO pass_redemption_batches
+                (member_pass_id, idempotency_key, order_id, redeemed_uses, extra_charge_total, store_id, cashier_user_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ";
         $stmt_batch = $pdo->prepare($sql_batch);
         // 注意：redeemed_uses 稍后计算
         $stmt_batch->execute([
             $pass_id,
+            $idempotency_key, // P3: 幂等键
             $invoice_id_tp, // P3: 关联 TP 发票 ID (如果为0元，则为 NULL)
             0, // P3: 临时为 0
             $alloc['extra_total'],
@@ -412,6 +476,8 @@ if (!function_exists('create_redeem_records')) {
             $now_utc_str_0 // P3: 使用 0 精度 UTC
         ]);
         $batch_id = (int)$pdo->lastInsertId();
+
+        error_log("[PASS_REDEEM] Created batch_id={$batch_id} with idempotency_key={$idempotency_key}");
 
         // 6. (P3) 写入核销明细 (pass_redemptions) 和 发票明细 (pos_invoice_items)
         $sql_item_tp = "INSERT INTO pos_invoice_items (invoice_id, menu_item_id, variant_id, item_name, variant_name, item_name_zh, item_name_es, variant_name_zh, variant_name_es, quantity, unit_price, unit_taxable_base, vat_rate, vat_amount, customizations) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
@@ -607,12 +673,20 @@ if (!function_exists('create_redeem_records')) {
         $print_jobs[] = [ 'type' => 'PASS_REDEMPTION_SLIP', 'data' => $slip_data, 'printer_role' => 'POS_RECEIPT' ];
 
         // 16. (P3) 返回结果
+        error_log("[PASS_REDEEM] Transaction completed successfully: " .
+                  "batch_id={$batch_id}, " .
+                  "redeemed_uses={$items_redeemed_count}, " .
+                  "extra_charge={$alloc['extra_total']}, " .
+                  "invoice_tp=" . ($invoice_number_tp ?: 'null') . ", " .
+                  "invoice_vr=" . ($invoice_number_vr ?: 'null'));
+
         return [
             'invoice_id_tp'     => $invoice_id_tp,       // 加价发票 ID (int|null)
             'invoice_number_tp' => $invoice_number_tp,   // 加价发票号 (string|null)
             'invoice_number_vr' => $invoice_number_vr,   // 0元凭条号 (string|null)
             'qr_content_tp'     => $qr_payload_tp,       // 加价发票二维码 (string|null)
-            'print_jobs'        => $print_jobs           // 打印任务
+            'print_jobs'        => $print_jobs,          // 打印任务
+            'idempotency_used'  => false                 // 标记这是首次处理
         ];
     }
 }
@@ -621,9 +695,10 @@ if (!function_exists('create_redeem_records')) {
 if (!function_exists('validate_redeem_limits')) {
     /**
      * P3 服务端验证：检查核销是否违反限制
+     * [FIX 2025-11-19] 添加详细的日志记录
      */
     function validate_redeem_limits(PDO $pdo, array $cart, array $tags_map, array $pass_check): void {
-        
+
         // 1. 计算本次核销的总次数
         $items_redeemed_count = 0;
         foreach ($cart as $item) {
@@ -633,25 +708,36 @@ if (!function_exists('validate_redeem_limits')) {
             }
         }
 
+        error_log("[PASS_REDEEM] validate_redeem_limits: items_to_redeem={$items_redeemed_count}, " .
+                  "remaining_uses={$pass_check['remaining_uses']}, " .
+                  "max_per_order={$pass_check['max_uses_per_order']}, " .
+                  "daily_remaining=" . ($pass_check['daily_uses_remaining'] ?? 'unlimited'));
+
         if ($items_redeemed_count === 0) {
+            error_log("[PASS_REDEEM] ERROR: No eligible items in cart");
             throw new Exception('购物车中没有可用于核销的饮品 (No eligible items in cart)。', 400);
         }
 
         // 2. 检查总剩余次数
         if ($items_redeemed_count > (int)$pass_check['remaining_uses']) {
+            error_log("[PASS_REDEEM] ERROR: Insufficient remaining uses: need {$items_redeemed_count}, have {$pass_check['remaining_uses']}");
             throw new Exception("次卡剩余次数不足 (剩余 {$pass_check['remaining_uses']}, 本次需 {$items_redeemed_count})", 400);
         }
 
         // 3. 检查单笔订单上限
         if ((int)$pass_check['max_uses_per_order'] > 0 && $items_redeemed_count > (int)$pass_check['max_uses_per_order']) {
+            error_log("[PASS_REDEEM] ERROR: Exceeds per-order limit: need {$items_redeemed_count}, max {$pass_check['max_uses_per_order']}");
             throw new Exception("单笔订单核销上限为 {$pass_check['max_uses_per_order']} 次 (本次 {$items_redeemed_count} 次)", 400);
         }
 
         // 4. 检查当日剩余上限
         // $pass_check['daily_uses_remaining'] 由 get_member_pass_for_update() 提供
         if ($pass_check['daily_uses_remaining'] !== null && $items_redeemed_count > (int)$pass_check['daily_uses_remaining']) {
+            error_log("[PASS_REDEEM] ERROR: Exceeds daily limit: need {$items_redeemed_count}, remaining today {$pass_check['daily_uses_remaining']}");
             throw new Exception("今日剩余核销上限为 {$pass_check['daily_uses_remaining']} 次 (本次 {$items_redeemed_count} 次)", 400);
         }
+
+        error_log("[PASS_REDEEM] Limits validation passed");
     }
 }
 
