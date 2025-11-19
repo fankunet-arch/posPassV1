@@ -374,12 +374,18 @@ function handle_pass_purchase(PDO $pdo, array $config, array $input_data): void 
         ], 'Pass purchase successful.');
 
     } catch (PDOException $e) {
-        $pdo->rollBack();
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        // [FIX 500 ERROR 2025-11-19] 添加详细的错误日志
+        error_log('[PASS_PURCHASE] PDOException: ' . $e->getMessage());
+        error_log('[PASS_PURCHASE] Trace: ' . $e->getTraceAsString());
         json_error('Database error during pass purchase: ' . $e->getMessage(), 500);
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        // 捕获 check_pass_purchase_limits 等助手函数抛出的特定错误
-        json_error('Error during pass purchase: ' . $e->getMessage(), $e->getCode() > 400 ? $e->getCode() : 500);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        // [FIX 500 ERROR 2025-11-19] 捕获所有异常（包括 Error）
+        $error_code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 500;
+        error_log('[PASS_PURCHASE] Exception: ' . get_class($e) . ': ' . $e->getMessage());
+        error_log('[PASS_PURCHASE] Trace: ' . $e->getTraceAsString());
+        json_error('Error during pass purchase: ' . $e->getMessage(), $error_code);
     }
 }
 

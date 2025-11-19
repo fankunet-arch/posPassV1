@@ -97,10 +97,12 @@ function renderDiscountCardsList(cards) {
         const item = document.createElement('div');
         item.className = 'list-group-item list-group-item-action';
         item.style.cursor = 'pointer';
+        // 根据当前语言选择卡片名称
+        const cardName = STATE.lang === 'es' ? (card.name_es || card.name) : (card.name_zh || card.name);
         item.innerHTML = `
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h6 class="mb-1">${escapeHtml(card.name_zh || card.name)}</h6>
+                    <h6 class="mb-1">${escapeHtml(cardName)}</h6>
                     <small class="text-muted">${t('card_total_uses')}: ${card.total_uses}</small>
                 </div>
                 <div class="text-end">
@@ -123,8 +125,9 @@ function renderDiscountCardsList(cards) {
 function showDiscountCardDetail(card) {
     currentCard = card;
 
-    // 填充详情
-    document.getElementById('card_detail_name').textContent = card.name_zh || card.name;
+    // 填充详情（根据当前语言选择卡片名称）
+    const cardName = STATE.lang === 'es' ? (card.name_es || card.name) : (card.name_zh || card.name);
+    document.getElementById('card_detail_name').textContent = cardName;
     document.getElementById('card_detail_price').textContent = fmtEUR(parseFloat(card.sale_price || 0));
     document.getElementById('card_detail_total_uses').textContent = card.total_uses || 0;
 

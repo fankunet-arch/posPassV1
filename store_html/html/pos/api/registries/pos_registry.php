@@ -34,10 +34,14 @@
 require_once realpath(__DIR__ . '/../../../../pos_backend/helpers/pos_helper.php');
 require_once realpath(__DIR__ . '/../../../../pos_backend/core/invoicing_guard.php');
 
-// [GEMINI FATAL ERROR FIX 2025-11-16] 
+// [GEMINI FATAL ERROR FIX 2025-11-16]
 // 必须在此处加载 pos_repo.php，因为 pos_registry_ops.php 中的 handle_data_load 依赖它
 require_once realpath(__DIR__ . '/../../../../pos_backend/helpers/pos_repo.php');
 
+// [FIX 500 ERROR 2025-11-19]
+// 必须在此处加载 pass 相关的 helper 文件，因为 handle_pass_purchase 依赖它们
+require_once realpath(__DIR__ . '/../../../../pos_backend/helpers/pos_repo_ext_pass.php');
+require_once realpath(__DIR__ . '/../../../../pos_backend/helpers/pos_pass_helper.php');
 
 // [B1.2 PASS] 2. 加载次卡处理器
 // [B1.2.2 REFACTOR] Removed: require_once realpath(__DIR__ . '/../handlers/pos_pass_handler.php');

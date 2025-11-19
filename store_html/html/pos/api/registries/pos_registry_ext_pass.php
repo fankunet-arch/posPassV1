@@ -147,7 +147,8 @@ return [
     'pass' => [
         'auth_role' => ROLE_STORE_USER,
         'custom_actions' => [
-            // 'purchase' => 'handle_pass_purchase', // P0 (在主 registry)
+            'list'     => 'handle_pass_list',        // P0 (在主 registry，此处保留避免被覆盖)
+            'purchase' => 'handle_pass_purchase',    // P0 (在主 registry，此处保留避免被覆盖)
             'redeem'   => 'handle_pass_redeem',      // P3 (在此实现)
         ],
     ],
