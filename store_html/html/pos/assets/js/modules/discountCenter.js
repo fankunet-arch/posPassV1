@@ -11,7 +11,7 @@
 import { STATE } from '../state.js';
 import { t, toast } from '../utils.js';
 import { openDiscountCardsPanel } from './discountCard.js';
-import { startPassRedemptionSession } from '../main.js';
+import { startPassRedemptionSession } from './passSession.js';
 
 /**
  * 优惠类型配置 (分层结构，可扩展)
