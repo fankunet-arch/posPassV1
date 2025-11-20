@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- 主机： mhdlmskv3gjbpqv3.mysql.db
--- 生成日期： 2025-11-19 23:15:45
+-- 生成日期： 2025-11-20 03:33:35
 -- 服务器版本： 8.4.6-6
 -- PHP 版本： 8.1.33
 
@@ -653,7 +653,7 @@ DROP TABLE IF EXISTS `pass_redemption_batches`;
 CREATE TABLE `pass_redemption_batches` (
   `batch_id` int UNSIGNED NOT NULL COMMENT '核销批次ID (对应一单)',
   `member_pass_id` int UNSIGNED NOT NULL COMMENT 'FK, 关联 member_passes.member_pass_id',
-  `order_id` int UNSIGNED NOT NULL COMMENT 'FK, 关联 pos_invoices.id (对应的TP税票ID)',
+  `order_id` int UNSIGNED DEFAULT NULL COMMENT 'FK, 关联 pos_invoices.id (TP税票ID, 0元核销时为NULL)',
   `redeemed_uses` int UNSIGNED NOT NULL COMMENT '本批次核销的总次数',
   `extra_charge_total` decimal(10,2) NOT NULL DEFAULT '0.00' COMMENT '本批次核销的加价总额',
   `store_id` int UNSIGNED NOT NULL COMMENT 'FK, 关联 kds_stores.id (核销门店)',
