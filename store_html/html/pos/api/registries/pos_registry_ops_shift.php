@@ -27,11 +27,12 @@ function handle_shift_status(PDO $pdo, array $config, array $input_data): void {
     $cutoff_dt_utc_str = (clone $today_cutoff_dt_madrid)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
     // [A2 UTC SYNC] END
 
+    // [FIX 2025-11-20] 添加 end_time IS NULL 检查，防止幽灵班次
     $stmt_any = $pdo->prepare(
         "SELECT s.id, s.user_id, s.start_time, u.display_name
          FROM pos_shifts s
          LEFT JOIN kds_users u ON s.user_id = u.id AND s.store_id = u.store_id
-         WHERE s.store_id=? AND s.status='ACTIVE'
+         WHERE s.store_id=? AND s.status='ACTIVE' AND s.end_time IS NULL
          ORDER BY s.id ASC LIMIT 1"
     );
     $stmt_any->execute([$store_id]);
@@ -78,7 +79,8 @@ function handle_shift_start(PDO $pdo, array $config, array $input_data): void {
     $tx_started = false;
     if (!$pdo->inTransaction()) { $pdo->beginTransaction(); $tx_started = true; }
 
-    $chk = $pdo->prepare("SELECT id FROM pos_shifts WHERE user_id=? AND store_id=? AND status='ACTIVE' ORDER BY id DESC LIMIT 1 FOR UPDATE");
+    // [FIX 2025-11-20] 添加 end_time IS NULL 检查
+    $chk = $pdo->prepare("SELECT id FROM pos_shifts WHERE user_id=? AND store_id=? AND status='ACTIVE' AND end_time IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE");
     $chk->execute([$user_id, $store_id]);
     if ($existing_id = $chk->fetchColumn()) {
         $_SESSION['pos_shift_id'] = (int)$existing_id;
@@ -86,7 +88,8 @@ function handle_shift_start(PDO $pdo, array $config, array $input_data): void {
         json_ok(['shift_id' => $existing_id], 'Shift already active (reused).');
     }
 
-    $chk_ghost = $pdo->prepare("SELECT id FROM pos_shifts WHERE store_id=? AND status='ACTIVE' LIMIT 1 FOR UPDATE");
+    // [FIX 2025-11-20] 添加 end_time IS NULL 检查
+    $chk_ghost = $pdo->prepare("SELECT id FROM pos_shifts WHERE store_id=? AND status='ACTIVE' AND end_time IS NULL LIMIT 1 FOR UPDATE");
     $chk_ghost->execute([$store_id]);
     if ($chk_ghost->fetchColumn()) {
          if ($tx_started && $pdo->inTransaction()) $pdo->rollBack();
@@ -150,7 +153,8 @@ function handle_shift_end(PDO $pdo, array $config, array $input_data): void {
     $tx_started = false;
     if (!$pdo->inTransaction()) { $pdo->beginTransaction(); $tx_started = true; }
 
-    $lock = $pdo->prepare("SELECT id, start_time, starting_float FROM pos_shifts WHERE id=? AND user_id=? AND store_id=? AND status='ACTIVE' FOR UPDATE");
+    // [FIX 2025-11-20] 添加 end_time IS NULL 检查
+    $lock = $pdo->prepare("SELECT id, start_time, starting_float FROM pos_shifts WHERE id=? AND user_id=? AND store_id=? AND status='ACTIVE' AND end_time IS NULL FOR UPDATE");
     $lock->execute([$shift_id, $user_id, $store_id]);
     $shift = $lock->fetch(PDO::FETCH_ASSOC);
     if (!$shift) {
@@ -231,7 +235,8 @@ function handle_shift_force_start(PDO $pdo, array $config, array $input_data): v
     $tx_started = false;
     if (!$pdo->inTransaction()) { $pdo->beginTransaction(); $tx_started = true; }
 
-    $stmt_ghosts = $pdo->prepare("SELECT id, start_time, starting_float, user_id FROM pos_shifts WHERE store_id=? AND status='ACTIVE' FOR UPDATE");
+    // [FIX 2025-11-20] 添加 end_time IS NULL 检查
+    $stmt_ghosts = $pdo->prepare("SELECT id, start_time, starting_float, user_id FROM pos_shifts WHERE store_id=? AND status='ACTIVE' AND end_time IS NULL FOR UPDATE");
     $stmt_ghosts->execute([$store_id]);
     $ghosts = $stmt_ghosts->fetchAll(PDO::FETCH_ASSOC);
 
