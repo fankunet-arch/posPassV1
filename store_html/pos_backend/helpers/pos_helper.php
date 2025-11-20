@@ -10,22 +10,27 @@ function ensure_active_shift_or_fail(PDO $pdo): int {
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
-    
+
     $shift_id = (int)($_SESSION['pos_shift_id'] ?? 0);
     $store_id = (int)($_SESSION['pos_store_id'] ?? 0);
     $user_id = (int)($_SESSION['pos_user_id'] ?? 0);
-    
+
+    // [FIX 2025-11-20] 启用数据库验证，不再仅信任 session
     if ($shift_id > 0 && $store_id > 0 && $user_id > 0) {
-        // 可选：可以进一步检查 $shift_id 是否真的在数据库中且未关闭
-        // $stmt = $pdo->prepare("SELECT 1 FROM pos_shifts WHERE id = ? AND store_id = ? AND ended_at IS NULL");
-        // $stmt->execute([$shift_id, $store_id]);
-        // if ($stmt->fetchColumn()) {
-        //     return $shift_id;
-        // }
-        return $shift_id; // 简化：信任 session
+        // 验证 shift_id 是否在数据库中且未关闭
+        $stmt = $pdo->prepare("SELECT 1 FROM pos_shifts WHERE id = ? AND store_id = ? AND user_id = ? AND status = 'ACTIVE' AND end_time IS NULL");
+        $stmt->execute([$shift_id, $store_id, $user_id]);
+        if ($stmt->fetchColumn()) {
+            // 班次有效，返回
+            return $shift_id;
+        }
+
+        // [FIX 2025-11-20] 如果数据库中班次无效，清除 session
+        error_log("[SHIFT_GUARD] Session shift_id={$shift_id} is invalid or ended, clearing session");
+        unset($_SESSION['pos_shift_id']);
     }
 
-    // 如果 session 中没有，触发班次保护
+    // 如果 session 中没有，或数据库验证失败，触发班次保护
     json_error('No active shift found. Please start a shift.', 403, ['error_code' => 'NO_ACTIVE_SHIFT']);
     exit;
 }
