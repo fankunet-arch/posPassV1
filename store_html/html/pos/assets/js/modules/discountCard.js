@@ -12,6 +12,25 @@ let pendingPurchaseCard = null; // 待购买的优惠卡（二次验证后使用
 let secondaryPhoneInput = null; // 二次验证的手机号
 
 /**
+ * [POS-PASS-I18N-NAME-MINI] 获取次卡的多语言显示名称
+ * @param {Object} card - 次卡对象
+ * @param {string} lang - 语言代码 ('es' | 'zh')
+ * @returns {string} - 显示名称
+ */
+function getPassDisplayName(card, lang = STATE.lang) {
+    // 西语环境：优先西语，回退到中文，最后用通用
+    if (lang === 'es') {
+        return (card.name_es && card.name_es.trim()) ||
+               (card.name_zh && card.name_zh.trim()) ||
+               card.name || '';
+    }
+    // 中文或其他语言：优先中文，最后用通用或西语
+    return (card.name_zh && card.name_zh.trim()) ||
+           card.name ||
+           (card.name_es && card.name_es.trim()) || '';
+}
+
+/**
  * 打开优惠卡列表
  */
 export async function openDiscountCardsPanel() {
@@ -97,8 +116,8 @@ function renderDiscountCardsList(cards) {
         const item = document.createElement('div');
         item.className = 'list-group-item list-group-item-action';
         item.style.cursor = 'pointer';
-        // 根据当前语言选择卡片名称
-        const cardName = STATE.lang === 'es' ? (card.name_es || card.name) : (card.name_zh || card.name);
+        // [POS-PASS-I18N-NAME-MINI] 使用统一的多语言名称获取函数
+        const cardName = getPassDisplayName(card);
         item.innerHTML = `
             <div class="d-flex justify-content-between align-items-center">
                 <div>
@@ -125,8 +144,8 @@ function renderDiscountCardsList(cards) {
 function showDiscountCardDetail(card) {
     currentCard = card;
 
-    // 填充详情（根据当前语言选择卡片名称）
-    const cardName = STATE.lang === 'es' ? (card.name_es || card.name) : (card.name_zh || card.name);
+    // [POS-PASS-I18N-NAME-MINI] 使用统一的多语言名称获取函数
+    const cardName = getPassDisplayName(card);
     document.getElementById('card_detail_name').textContent = cardName;
     document.getElementById('card_detail_price').textContent = fmtEUR(parseFloat(card.sale_price || 0));
     document.getElementById('card_detail_total_uses').textContent = card.total_uses || 0;

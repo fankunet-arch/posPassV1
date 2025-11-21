@@ -310,12 +310,24 @@ export async function submitOrder() {
             // --- Flow A: Discount Card Purchase (ONLY valid pass purchase flow) ---
             const card = STATE.purchasingDiscountCard;
 
+            // [POS-PASS-I18N-NAME-MINI] 获取多语言名称（与 discountCard.js 逻辑一致）
+            let cardName;
+            if (STATE.lang === 'es') {
+                cardName = (card.name_es && card.name_es.trim()) ||
+                          (card.name_zh && card.name_zh.trim()) ||
+                          card.name || '';
+            } else {
+                cardName = (card.name_zh && card.name_zh.trim()) ||
+                          card.name ||
+                          (card.name_es && card.name_es.trim()) || '';
+            }
+
             const purchaseData = {
                 member_id: card.member_id,
                 secondary_phone_input: card.secondary_phone_input, // 二次验证的手机号
                 cart_item: {
                     sku: card.sale_sku,
-                    name: card.name_zh || card.name,
+                    name: cardName,
                     qty: 1,
                     price: parseFloat(card.sale_price || 0),
                     total: parseFloat(card.sale_price || 0)
