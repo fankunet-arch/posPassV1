@@ -1,0 +1,13 @@
+[20-Nov-2025 18:43:32 Europe/Paris] [PASS_REDEEM] validate_redeem_limits: items_to_redeem=1, remaining_uses=29, max_per_order=1, daily_remaining=unlimited
+[20-Nov-2025 18:43:32 Europe/Paris] [PASS_REDEEM] Limits validation passed
+[20-Nov-2025 18:43:32 Europe/Paris] [PASS_REDEEM] Checking idempotency for key: 4b6572c6-a712-4b8e-b6c3-c2d082ff10ea, pass_id: 1
+[20-Nov-2025 18:43:32 Europe/Paris] [PASS_REDEEM] Starting redeem transaction for member_id=1, pass_id=1, idempotency_key=4b6572c6-a712-4b8e-b6c3-c2d082ff10ea
+[20-Nov-2025 18:43:32 Europe/Paris] [PASS_REDEEM] Created batch_id=2 with idempotency_key=4b6572c6-a712-4b8e-b6c3-c2d082ff10ea
+[20-Nov-2025 18:43:32 Europe/Paris] [PASS_REDEEM] Transaction completed successfully: batch_id=2, redeemed_uses=1, extra_charge=0, invoice_tp=null, invoice_vr=A1-VRY25-5
+[21-Nov-2025 16:00:48 Europe/Paris] [PASS_REDEEM] validate_redeem_limits: items_to_redeem=1, remaining_uses=28, max_per_order=1, daily_remaining=unlimited
+[21-Nov-2025 16:00:48 Europe/Paris] [PASS_REDEEM] Limits validation passed
+[21-Nov-2025 16:00:48 Europe/Paris] [PASS_REDEEM] Checking idempotency for key: 76ed025e-dae8-4f02-a35c-c7c38d258cfb, pass_id: 1
+[21-Nov-2025 16:00:48 Europe/Paris] [PASS_REDEEM] Starting redeem transaction for member_id=1, pass_id=1, idempotency_key=76ed025e-dae8-4f02-a35c-c7c38d258cfb
+[21-Nov-2025 16:00:48 Europe/Paris] [PASS_REDEEM] Created batch_id=3 with idempotency_key=76ed025e-dae8-4f02-a35c-c7c38d258cfb
+[21-Nov-2025 16:00:48 Europe/Paris] [PASS_REDEEM] Transaction completed successfully: batch_id=3, redeemed_uses=1, extra_charge=0, invoice_tp=null, invoice_vr=A1-VRY25-6
+[21-Nov-2025 16:03:00 Europe/Paris] [PASS_PURCHASE] Stacked purchase for member_id=1, plan_id=1: total_uses 30 -> 40, remaining_uses 27 -> 37
