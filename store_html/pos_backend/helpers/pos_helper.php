@@ -38,111 +38,31 @@ function ensure_active_shift_or_fail(PDO $pdo): int {
 /**
  * 计算EOD（日结）或班次交接的总额。
  *
+ * @deprecated This function is deprecated and should not be used.
+ * @see pos_repo::getInvoiceSummaryForPeriod() for the current implementation
+ *
  * @param PDO $pdo 数据库连接
  * @param int $store_id 门店ID
  * @param string $start_time (UTC) 开始时间 (Y-m-d H:i:s)
  * @param string $end_time (UTC) 结束时间 (Y-m-d H:i:s)
  * @return array 包含总额的数组
+ * @throws Exception Always throws exception indicating deprecation
  */
 function calculate_eod_totals(PDO $pdo, int $store_id, string $start_time, string $end_time): array {
+    // [SECURITY FIX 2025-11-21] 熔断废弃函数，防止引用不存在的 pos_invoice_payments 表
+    // 该函数是旧实现残留，查询了不存在的表，会导致 SQLSTATE[42S02] 错误
+    // 现行 EOD 实现位于：pos_backend/helpers/pos_repo.php::getInvoiceSummaryForPeriod()
+    // 参考技术债文档：ISSUE-POS-DB-001
 
-    $totals = [
-        'total_sales' => 0.0,
-        'total_refunds' => 0.0,
-        'net_sales' => 0.0,
-        'total_discount' => 0.0,
-        'total_tax' => 0.0,
-        'item_count' => 0,
-        'order_count' => 0,
-        'payment_methods' => [],
-    ];
+    throw new Exception(
+        "DEPRECATED: calculate_eod_totals() is a legacy function that references non-existent table 'pos_invoice_payments'. " .
+        "Use pos_repo::getInvoiceSummaryForPeriod() instead. See ISSUE-POS-DB-001 in technical debt documentation."
+    );
 
-    // 1. 获取所有在时间范围内的已完成和已退款的发票
-    $sql_invoices = "
-        SELECT 
-            id, 
-            final_total, 
-            subtotal,
-            discount_total, 
-            tax_total, 
-            status, 
-            (SELECT SUM(quantity) FROM pos_invoice_items WHERE invoice_id = pos_invoices.id) as items
-        FROM pos_invoices
-        WHERE store_id = :store_id
-          AND issued_at >= :start_time
-          AND issued_at <= :end_time
-          AND status IN ('completed', 'refunded')
-    ";
-    
-    $stmt_invoices = $pdo->prepare($sql_invoices);
-    $stmt_invoices->execute([
-        ':store_id' => $store_id,
-        ':start_time' => $start_time,
-        ':end_time' => $end_time
-    ]);
-
-    $invoices = $stmt_invoices->fetchAll(PDO::FETCH_ASSOC);
-    $invoice_ids = [];
-
-    foreach ($invoices as $invoice) {
-        $invoice_ids[] = (int)$invoice['id'];
-        
-        if ($invoice['status'] === 'completed') {
-            $totals['total_sales'] += (float)$invoice['final_total'];
-            $totals['total_discount'] += (float)$invoice['discount_total'];
-            $totals['total_tax'] += (float)$invoice['tax_total'];
-            $totals['item_count'] += (int)$invoice['items'];
-            $totals['order_count']++;
-        } elseif ($invoice['status'] === 'refunded') {
-            // 退款计为负销售
-            $totals['total_refunds'] += (float)$invoice['final_total']; // final_total 已经是负数
-            $totals['total_discount'] += (float)$invoice['discount_total']; // 折扣也可能是负数
-            $totals['total_tax'] += (float)$invoice['tax_total']; // 税金也是负数
-            $totals['item_count'] += (int)$invoice['items']; // 计入操作
-            $totals['order_count']++;
-        }
-    }
-
-    $totals['net_sales'] = $totals['total_sales'] + $totals['total_refunds'];
-
-    if (empty($invoice_ids)) {
-        return $totals; // 如果没有订单，提前返回
-    }
-
-    // 2. 按支付方式汇总
-    $placeholders = implode(',', array_fill(0, count($invoice_ids), '?'));
-    $sql_payments = "
-        SELECT 
-            payment_method, 
-            SUM(amount) as total_amount
-        FROM pos_invoice_payments
-        WHERE invoice_id IN ($placeholders)
-        GROUP BY payment_method
-    ";
-    
-    $stmt_payments = $pdo->prepare($sql_payments);
-    $stmt_payments->execute($invoice_ids);
-    
-    $payments = $stmt_payments->fetchAll(PDO::FETCH_ASSOC);
-    
-    $payment_map = [];
-    foreach ($payments as $payment) {
-        $method = $payment['payment_method'] ?? 'Unknown';
-        $amount = (float)$payment['total_amount'];
-        $payment_map[$method] = $amount;
-    }
-    
-    // 确保包含所有主要类型，即使它们是0
-    $known_methods = ['Cash', 'Card', 'Platform', 'Points', 'Voucher'];
-    foreach ($known_methods as $method) {
-        if (!isset($payment_map[$method])) {
-            $payment_map[$method] = 0.0;
-        }
-    }
-    
-    $totals['payment_methods'] = $payment_map;
-
-    return $totals;
+    // ============================================================================
+    // 原有实现已删除（~100 行 SQL 逻辑访问不存在的 pos_invoice_payments 表）
+    // 如需查看历史实现，请参考 Git 历史记录
+    // ============================================================================
 }
 
 
