@@ -282,10 +282,26 @@ function handle_shift_force_start(PDO $pdo, array $config, array $input_data): v
         $counted_cash = 0.0; // 强制关闭时，清点现金为0
         $cash_diff = 0.0; // 强制关闭时，差异为0
 
+        // [FIX EOD-002] 获取支付方式汇总用于 payment_summary (复用正常关班逻辑)
+        $period_summary = getInvoiceSummaryForPeriod($pdo, $store_id, $ghost['start_time'], $now_utc_str);
+        $payment_summary_data = [
+            'cash' => (float)($period_summary['payments']['Cash'] ?? 0.0),
+            'card' => (float)($period_summary['payments']['Card'] ?? 0.0),
+            'platform' => (float)($period_summary['payments']['Platform'] ?? 0.0),
+            'total' => round(
+                (float)($period_summary['payments']['Cash'] ?? 0.0) +
+                (float)($period_summary['payments']['Card'] ?? 0.0) +
+                (float)($period_summary['payments']['Platform'] ?? 0.0),
+                2
+            ),
+            'note' => 'Forcibly closed by ' . $closer_name  // 保留强制关班备注
+        ];
+        $payment_summary_json = json_encode($payment_summary_data);
+
         $upd = $pdo->prepare(
-            "UPDATE pos_shifts SET 
-                end_time = ?, status = 'FORCE_CLOSED', counted_cash = ?, expected_cash = ?, 
-                cash_variance = ?, payment_summary = ?, admin_reviewed = 0 
+            "UPDATE pos_shifts SET
+                end_time = ?, status = 'FORCE_CLOSED', counted_cash = ?, expected_cash = ?,
+                cash_variance = ?, payment_summary = ?, admin_reviewed = 0
              WHERE id = ?"
         );
         $upd->execute([
@@ -293,7 +309,7 @@ function handle_shift_force_start(PDO $pdo, array $config, array $input_data): v
             $counted_cash, // 强制关闭时，清点现金为0
             (float)$totals['expected_cash'],
             (float)$totals['expected_cash'] * -1, // 差异 = 0 - 理论
-            json_encode(['note' => 'Forcibly closed by ' . $closer_name]),
+            $payment_summary_json,  // [FIX EOD-002] 使用包含支付分解的 JSON
             $ghost_id
         ]);
         
