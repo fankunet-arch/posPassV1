@@ -74,6 +74,13 @@ if (!function_exists('create_pass_records')) {
         $now_utc_str = $now_utc->format('Y-m-d H:i:s');
         $validity_days = (int)$plan_details['validity_days'];
 
+        // [B1-PASS-REVIEW-AND-PAYMENT-MINI] 读取 auto_activate 配置
+        $auto_activate = (int)($plan_details['auto_activate'] ?? 1);
+        // 根据 auto_activate 决定初始状态：
+        // - auto_activate = 1: 立即激活 (status='active')
+        // - auto_activate = 0: 需审核后激活 (status='suspended')
+        $initial_status = ($auto_activate === 1) ? 'active' : 'suspended';
+
         // 从 cart_item 中提取价格
         $unit_price = (float)($cart_item['price'] ?? $cart_item['total'] ?? 0);
 
@@ -117,6 +124,12 @@ if (!function_exists('create_pass_records')) {
 
         if ($existing_pass) {
             // 3a. 已存在记录：叠加购买，UPDATE 累加次数
+            // [B1-PASS-REVIEW-AND-PAYMENT-MINI] 设计决策：
+            // - 叠加购买不修改 status 字段，避免将已激活的卡整体锁死
+            // - 即使 auto_activate=0，已有的 active 卡仍保持 active
+            // - 理由：会员可能已经在使用该卡，强制回退到 'suspended' 会影响体验
+            // - 如果未来要对叠加购买也做"审核后生效"，需要单独立项设计
+            //   (例如：新增字段记录"待审核次数"，审核通过后再转入 remaining_uses)
             $member_pass_id = (int)$existing_pass['member_pass_id'];
 
             // 累加次数和金额
@@ -130,6 +143,7 @@ if (!function_exists('create_pass_records')) {
             $new_expires_candidate = (clone $now_utc)->modify("+{$validity_days} days")->format('Y-m-d H:i:s');
 
             // 使用 SQL GREATEST 函数在数据库层面比较
+            // 注意：UPDATE 不修改 status 字段（保持原有状态）
             $sql_update = "
                 UPDATE member_passes
                 SET total_uses = ?,
@@ -159,6 +173,9 @@ if (!function_exists('create_pass_records')) {
 
         } else {
             // 3b. 不存在记录：首次购买，INSERT 新记录
+            // [B1-PASS-REVIEW-AND-PAYMENT-MINI] 设计决策：
+            // - 首次购买时，根据 auto_activate 决定初始状态 (active 或 suspended)
+            // - 如果 auto_activate=0，卡片将处于 'suspended' 状态，需 CPSYS 审核后激活
             $unit_allocated_base = ($total_uses_to_add > 0) ? ($purchase_amount_to_add / $total_uses_to_add) : 0;
             $expires_at_utc_str = (clone $now_utc)->modify("+{$validity_days} days")->format('Y-m-d H:i:s');
 
@@ -168,7 +185,7 @@ if (!function_exists('create_pass_records')) {
                      purchase_amount, unit_allocated_base, status, store_id, device_id,
                      activated_at, expires_at)
                 VALUES
-                    (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
             $stmt_insert = $pdo->prepare($sql_insert);
             $stmt_insert->execute([
@@ -179,6 +196,7 @@ if (!function_exists('create_pass_records')) {
                 $total_uses_to_add,
                 $purchase_amount_to_add,
                 $unit_allocated_base,
+                $initial_status, // [B1-MINI] 使用动态状态而非硬编码 'active'
                 $store_id,
                 $device_id,
                 $now_utc_str, // activated_at
