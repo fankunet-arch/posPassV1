@@ -1,0 +1,187 @@
+L4-2B-POS 代码引用审计 阶段报告（2025-11-21）
+
+一、基本信息
+- 阶段ID：L4-2B-POS
+- 阶段名称：老线次卡数据表 · POS 代码引用审计
+- 系统范围：POS 线（前端 html/pos + 后端 pos_backend）
+- 时间范围：2025-11-21
+- 输入材料：
+  - POS 代码仓（含 /store_html/html/pos 与 /store_html/pos_backend）
+  - 数据库结构文件：db_schema_structure_only.sql
+- 参考上游阶段：
+  - L4-2A：Schema 粗筛（已确认当前快照中无典型旧线次卡表）
+
+二、阶段目标回顾
+本阶段的目标是：
+1. 基于完整的 POS 代码仓，对所有 SQL 中引用的表名做一次静态审计；
+2. 检查 POS 代码中：
+   - 是否存在引用“已不存在或未在 Schema 中出现”的表（幽灵表）；
+   - 是否存在与“旧线次卡模型”相关的表名引用；
+   - 是否与 L4-2A 确认的新线次卡表列表一致；
+3. 输出一份审计报告，为后续 L4-2B 的 CPSYS / KDS 审计提供对照。
+
+三、新线次卡表引用验证（New Pass – POS 使用情况）
+
+经审计，POS 线对新线次卡核心表和支撑表的引用如下：
+
+1. pass_plans
+   - 引用位置：
+     - pos_pass_helper.php
+     - pos_repo_ext_pass.php
+     - pos_registry_ext_pass.php
+   - 业务用途：
+     - 获取次卡方案详情，用于售卡时记录方案快照与规则。
+
+2. member_passes
+   - 引用位置：
+     - pos_repo_ext_pass.php
+     - pos_pass_helper.php
+     - pos_registry_member_pass.php
+   - 业务用途：
+     - 核心表：维护会员已购次卡（总次数、剩余次数、金额、有效期等）；
+     - 售卡时创建/叠加记录，核销时扣减 remaining_uses。
+
+3. topup_orders
+   - 引用位置：
+     - pos_pass_helper.php
+   - 业务用途：
+     - 记录次卡售卡订单，对应 VR 凭证号，反映合同负债的形成。
+
+4. pass_redemption_batches
+   - 引用位置：
+     - pos_pass_helper.php
+     - migrate_pass_redemptions_v2.php
+   - 业务用途：
+     - 记录每笔核销批次（一次操作），关联 pos_invoices（有加价时）或仅记录核销；
+     - 承载幂等键 idempotency_key。
+
+5. pass_redemptions
+   - 引用位置：
+     - pos_pass_helper.php
+     - migrate_pass_redemptions.php
+   - 业务用途：
+     - 单杯核销明细表，记录每一杯的覆盖金额 covered_amount 与额外加价 extra_charge。
+
+6. pass_daily_usage
+   - 引用位置：
+     - pos_repo_ext_pass.php
+     - pos_pass_helper.php
+   - 业务用途：
+     - 每日使用次数统计，用于限制 max_uses_per_day 等规则。
+
+7. pos_vr_counters
+   - 引用位置：
+     - pos_repo_ext_pass.php
+   - 业务用途：
+     - 生成售卡和 0 元核销时的 VR 系列票号，确保号段无冲突。
+
+8. pos_tags / pos_product_tag_map
+   - 引用位置：
+     - pos_repo.php
+   - 业务用途：
+     - 使用 pass_eligible_beverage、free_addon 等标签，判断商品/加料是否可被次卡覆盖。
+
+9. pos_print_templates
+   - 引用位置：
+     - 与打印模块相关（打印模板加载、PASS_REDEMPTION_SLIP 模板使用）。
+   - 业务用途：
+     - 为次卡核销小票提供模板数据。
+
+结论：  
+POS 线在处理“次卡售卖与核销”时，**仅使用新线次卡表（及其支撑表）完成业务逻辑**，未发现混用旧线表的情况。
+
+四、异常/可疑引用表分析
+
+通过扫描 POS 代码仓中的所有 SQL 语句，并与 db_schema_structure_only.sql 的表结构进行比对，发现如下几类有意义的情况：
+
+（一）幽灵表（Ghost Tables）——代码引用但 Schema 中不存在
+
+1. pos_invoice_payments
+   - 引用位置：
+     - pos_backend/helpers/pos_helper.php
+       - 函数：calculate_eod_totals（行号约 ~78）
+   - 情况说明：
+     - 该函数试图查询一个名为 pos_invoice_payments 的表，以计算日结时的支付总额；
+     - 在当前 Schema 文件中，未找到 pos_invoice_payments 表的定义；
+     - 实际支付信息存储在 pos_invoices.payment_summary JSON 字段中，日结逻辑在 pos_repo.php 中已有基于 JSON 的正确实现。
+   - 风险分析：
+     - 若 calculate_eod_totals 被任何旧接口或未来开发误调用，将导致 500 错误；
+     - 当前迹象显示该函数属于“旧实现残留 / 死代码”，但仍应视为潜在地雷。
+   - 建议：
+     - 在技术债文档中登记该问题；
+     - 在后续专门的“日结/EOD 整理阶段”中，评估是否删除或重写该函数。
+
+（二）Schema 中存在但 POS 代码未使用的相关表
+
+1. pos_member_issued_coupons
+   - 情况说明：
+     - Schema 中存在该表，表示“发放给具体会员的优惠券实例”；
+     - POS 端当前优惠券处理逻辑主要依赖 pos_coupons（通用码），未发现对 pos_member_issued_coupons 的读写操作。
+   - 业务含义：
+     - 当前 POS 不支持“个人券”的核销，只支持通用券；
+     - 若未来要启用“发券给特定会员并在 POS 核销”，需要新增相应功能。
+   - 建议：
+     - 在业务规划层面确定是否需要“个人券”功能；
+     - 如需要，另立需求，不在本次次卡项目内直接扩展。
+
+2. kds_sop_query_rules
+   - 情况说明：
+     - 属于 KDS 系统的规则配置表；
+     - POS 代码没有引用该表，属于正常的系统边界划分。
+
+3. audit_logs / expsys_store_stock 等
+   - 情况说明：
+     - audit_logs：未发现 POS 直接写入，可能由上游网关或 HQ 统一写入；
+     - expsys_store_stock：库存相关，POS 不直接读写库存，可能由 KDS/后台系统维护。
+   - 结论：
+     - 这些表的“未使用”不属于 bug，而是系统分工所致。
+
+（三）旧线/Legacy 次卡表检查
+
+- 在 POS 代码中，未发现对 old_members, legacy_cards, card_balance 等典型旧线表名的引用。
+- pos_repo.php 中曾存在对 pos_payments, pos_orders, pos_cash_movements 的旧实现引用，当前已通过新实现重写或注释，统一改为基于 pos_invoices 的逻辑。
+
+结论：  
+在本次审计范围内，**未发现明显的旧线次卡表引用或“幻想表”式的错误引用，除 pos_invoice_payments 这一遗留函数外，整体引用关系健康。**
+
+五、已知问题与技术债
+
+通过本次 L4-2B-POS 审计，确认以下问题应记录为技术债或业务缺口：
+
+1. ISSUE-POS-DB-001：calculate_eod_totals 引用不存在的 pos_invoice_payments 表
+   - 类型：技术债 / 潜在异常点
+   - 位置：pos_backend/helpers/pos_helper.php
+   - 描述：
+     - 函数 calculate_eod_totals 使用了已不存在的 pos_invoice_payments 表；
+     - 当前 EOD 流程主要依赖 pos_repo.php 中基于 pos_invoices.payment_summary 的实现，calculate_eod_totals 疑似死代码。
+   - 风险：
+     - 若被旧接口或未来误用，将导致运行时错误（500）；
+     - 容易误导后续维护者，以为存在 pos_invoice_payments 表。
+   - 建议修复阶段：
+     - 在“日结/EOD 模块整理阶段”统一处理该函数（重写或删除），不在当前次卡项目阶段直接修改。
+
+2. ISSUE-POS-FEATURE-001：POS 不支持 pos_member_issued_coupons（个人券）核销
+   - 类型：功能缺口 / 业务规划问题
+   - 描述：
+     - Schema 中存在 pos_member_issued_coupons 表，用于发放个人券；
+     - POS 端目前仅处理 pos_coupons（通用券），无个人券核销逻辑。
+   - 影响：
+     - 若业务有“个人券”需求，POS 无法直接支持；
+     - 当前项目聚焦次卡，不建议在本阶段扩展个人券功能。
+   - 建议：
+     - 由产品/业务侧确认是否需要个人券功能；
+     - 如需要，可在后续“优惠券系统强化”阶段单独立项处理。
+
+六、阶段结论与后续建议
+
+1. 阶段结论
+   - L4-2B-POS（老线次卡数据表 · POS 代码引用审计）状态：
+     - ✅ 完成。
+   - 结论要点：
+     - POS 线次卡逻辑完全基于新线表实现，无旧线表混用；
+     - 未发现大面积的幽灵表或结构不一致问题；
+     - 存在一个高风险死函数（calculate_eod_totals）与一个“个人券功能缺口”，已登记为技术债。
+
+2. 后续建议
+   - 继续执行 L4-2B 的 CPSYS / KDS 审计，确保总部与后厨系统也只使用新线表；
+   - 在技术债文档中正式记录 ISSUE-POS-DB-001 与 ISSUE-POS-FEATURE-001，并在后续阶段（EOD 整理 / 优惠券功能增强）中安排处理。

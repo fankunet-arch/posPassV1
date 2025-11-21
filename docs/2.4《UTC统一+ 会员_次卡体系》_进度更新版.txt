@@ -1,0 +1,149 @@
+2.4《UTC 统一 + 会员 _ 次卡体系》_V2
+更新日期：2025-11-20
+状态：开发冲刺与修复阶段（代码审计已完成）
+
+一、进度标记总览（已完成 / 🔴 阻碍中 / 🟡 待收尾）
+
+0）全局基线 & 数据模型（所有线共用）
+0) 背景与统一基线（UTC + DATETIME(6)）
+   状态：✅ 已完成
+   说明：
+   - 数据库时间统一为 UTC + DATETIME(6)。
+   - 连接层已强制 SET time_zone = '+00:00'。
+   - PHP helper (pos_datetime_helper.php) 已强制使用 UTC。
+
+1) 数据模型（pass_ / topup_orders 等）
+   状态：🔴 需要修正 (Schema Mismatch)
+   说明：
+   - 问题：`pass_redemption_batches` 和 `pass_redemptions` 表的 `order_id` 字段约束为 `NoT NULL`。
+   - 冲突：0 元核销时不生成 TP 发票 (order_id 为 NULL)，导致写入报错 1048。
+   - 解决：必须运行迁移脚本 `migrate_pass_redemptions_v2.php`。
+
+2) 全局业务原则
+   状态：✅ 代码已落实
+   说明：一单一卡、限次、幂等性（idempotency_key）均已在代码中实现。
+
+3.1 CPSYS-RMS（主数据中心）
+R1/R2：主数据模型与后台 CRUD
+   状态：✅ 已完成
+
+3.2 CPSYS-BMS（总部经营）
+B1：次卡后台（只读/审核）
+   状态：⚠️ 待确认 (高风险)
+   说明：需确认后台 `handle_topup_order_review` 拒绝审核时的 SQL 截断错误是否已修复。
+   【B1.1 member_passes.status 使用规范（B1 版本）】
+
+member_passes.status 字段枚举为：
+- active：可用状态，允许核销。
+- suspended ：挂起/暂停使用状态，B1 版本中同时承载：
+  1）“待审核/未激活”的新购次卡；
+  2）潜在的“业务冻结/风控冻结”等场景（未来扩展）。
+- revoked   ：人工撤销/作废。
+- expired   ：过期，不可用。
+
+B1 设计约定：
+1）首次购卡（INSERT）时：
+   - 若 pass_plans.auto_activate = 1 → 新卡插入时 status = 'active'；
+   - 若 pass_plans.auto_activate = 0 → 新卡插入时 status = 'suspended'（表示“待审核”）。
+
+2）叠加购买（UPDATE）时：
+   - 不强制修改 member_passes.status。
+   - 若原本为 active，则保持 active，不会因为新增一笔待审核的叠加购买而整体回退为 suspended。
+   - 理由：避免误将正在使用中的卡整体锁死；叠加购买审核策略将由后续 B2/B3 阶段细化。
+
+3）核销接口：
+   - PoS 后端核销查询仅接受 status = 'active' 的记录。
+   - 利用这一点，所有处于 suspended 状态的卡在 B1 阶段自然无法被核销，实现“未审核 = 无法核销”。
+
+未来扩展预留：
+- 鉴于 suspended 同时承担“待审核”和“业务冻结”的语义，后续若需要区分冻结原因，可以考虑新增字段：
+  - member_passes.suspend_reason （示例值：'pending_review', 'risk_freeze', ...）
+- 当前 B1 阶段不新增该字段，仅在设计说明中明确预留此方案，避免未来再新增 status 枚举值导致兼容性问题。
+
+【B1 · 次卡状态 & 审核规则补充说明】
+1.member_passes.status 的约定
+oactive：卡片可用，可被 PoS 核销。
+osuspended：卡片暂不可用，当前阶段用于两种情况：
+1）新购卡且 pass_plans.auto_activate=0，等待总部审核；
+2）人工挂起（包括运营、风控等原因）。
+orevoked：卡片被彻底撤销，不可再使用。
+oexpired：卡片已过期。
+2.auto_activate 的行为
+o auto_activate=1：
+PoS 售卡后立即写入 status='active'，无需人工审核。
+oauto_activate=0：
+PoS 售卡时写入 status='suspended'，必须经 CPSYS 审核（Topup order review）后，才由 activate_member_pass() 切换为 active。
+o 叠加购买（同一张卡追加次数）：
+不再根据 auto_activate 改 status，延用原状态。
+避免“已在使用的卡因为追加购买而被整体锁死”。
+3.次卡核销支付白名单（加价场景）
+o 术语：
+0 元核销：仅消耗次卡次数，final_total/extra_total = 0。
+有加价核销：存在 extra_total > 0，对应实际收款。
+o 规则：
+0 元核销：
+当前阶段继续走“支付弹窗 + 0 元支付”，不做支付渠道限制（B1 决策）。
+有加价核销：
+前端仅展示「现金 / 银行卡」支付方式。
+后端强制校验：只要发现第三方支付（Bizum/Platform 等）金额 > 0，则拒绝本次核销。
+o 后续规划：
+0 元核销流程会在后续阶段优化为「点击一次【核销】按钮 + 确认弹窗」，不再依赖支付弹窗。
+
+
+
+B2：指标看板
+   状态：🟡 部分完成
+
+3.3 PoS 线（门店交易 · 核心战场）
+
+架构层级：优惠中心 (Discount Center)
+   状态：✅ 已完成
+   说明：
+   - 代码 (discountCenter.js) 已实现如下层级：
+ 优惠中心
+ └─ 次卡 (Pass Category)
+├─ 购买次卡 (Purchase)
+└─ 核销次卡 (Redeem)
+ └─ (未来预留：折扣券/套餐券)
+
+售卡流程（VR）
+   状态：✅ 已完成
+   说明：支持叠加购买 (Update) 与新购 (Insert) 自动判断，解决唯一键冲突。
+
+P1：次卡会话与商品选择
+   状态：✅ 已完成
+   说明：核销模式下白名单商品过滤生效。
+
+P2：加料与上限规则
+   状态：✅ 已完成
+   说明：服务端与前端双重校验 `global_free_addon_limit`，计价逻辑准确。
+
+P3：结账与落库（并发与幂等）
+   状态：✅ 已完成（2025-11-20 双轮审计通过）
+
+   说明：
+   - 事务逻辑完整（pos_pass_helper.php），包含 FoR UPDATE 并发锁 + idempotency_key 幂等。
+   - 已通过 /pos/api/migrate_pass_redemptions_v2.php 迁移，将 pass_redemption_batches.order_id、pass_redemptions.order_id/order_item_id 调整为允许 NULL。
+   - 0 元核销实测成功：不生成 TP 发票，仅生成 VR；有加价时同时生成 VR + TP。
+   - pass_redemption_batches 上的唯一索引 + 代码层查重双保险，确保重复请求不会重复扣次。
+
+P4：打印模板与后台设置
+   状态：🟡 待配置
+   说明：
+   - 后端数据 (`print_jobs`) 已准备就绪。
+   - 缺口：DB `pos_print_templates` 表中缺失 `PASS_REDEMPTIoN_SLIP` 模板数据。
+
+二、最新任务清单 (Action Items)
+
+A. 数据库修复 (立即执行)
+   - 运行 `/pos/api/migrate_pass_redemptions_v2.php`。
+   - 验证 `order_id` 字段是否变更为允许 NULL。
+
+B. 打印配置 (高优先级)
+   - 在数据库插入 `PASS_REDEMPTIoN_SLIP` 的 JSoN 模板配置。
+
+C. BMS 修复 (中优先级)
+   - 修复后台审核拒绝逻辑。
+
+D. 最终联调
+   - 再次执行 0 元核销，确认不再报错且只打印 VR 凭条。

@@ -1,0 +1,67 @@
+POS EOD 幽灵函数熔断 Mini 阶段报告（2025-11-21）
+
+一、基本信息
+- 阶段ID：POS-EOD-MINI-001
+- 阶段名称：EOD 日结模块幽灵函数熔断（ISSUE-POS-DB-001）
+- 系统范围：POS 后端（EOD / 日结模块）
+- 时间范围：2025-11-21
+- 相关分支：claude/secure-eod-module-01ACdts5h7P4fHesgdvk757r
+- 相关问题编号：ISSUE-POS-DB-001（pos_known_issues_and_debts.md）
+
+二、阶段目标回顾
+- 清除 `calculate_eod_totals` 函数对幽灵表 `pos_invoice_payments` 的访问，避免被误调用时产生 SQL 500 错误；
+- 保证现行 EOD 正式实现链路（基于 `pos_repo::getInvoiceSummaryForPeriod()` + `pos_invoices.payment_summary`）不受影响；
+- 以最小改动方式完成修复：不重写 EOD，不调整数据库结构，仅对旧函数进行“熔断处理”。
+
+三、实际改动概览
+
+1. 文件与函数
+- 文件：`store_html/pos_backend/helpers/pos_helper.php`
+- 函数：`calculate_eod_totals(PDO $pdo, int $store_id, string $start_time, string $end_time): array`
+
+2. 代码层改动
+- 在函数开头新增废弃异常抛出逻辑：
+  - 抛出包含 "DEPRECATED" 的异常，并指向 `pos_repo::getInvoiceSummaryForPeriod()` 作为推荐替代实现。
+- 删除所有访问 `pos_invoice_payments` 的 SQL 语句和相关处理代码（幽灵表引用彻底移除）。
+- 添加 PHPDoc 注释：
+  - `@deprecated` 标明函数已废弃；
+  - `@throws` 标明会抛出异常；
+  - 简要说明历史背景与替代方案。
+
+3. 未改动的部分
+- 未改动 `pos_repo.php` 中的 EOD 正式实现；
+- 未改动数据库 Schema（未新增/删除任何表或字段）。
+
+四、自测与验证
+
+1. 废弃函数熔断测试
+- 手动调用 `calculate_eod_totals($pdo, $store_id, $start_time, $end_time)`（可通过小测试脚本）：
+  - 预期行为：抛出“DEPRECATED calculate_eod_totals…”类型的异常；
+  - 不应再出现 `pos_invoice_payments` 相关的 SQL 错误。
+
+2. 现行 EOD 流程验证
+- 从 POS 前端或直接通过 API 调用：
+  - `?res=eod&act=get_preview`
+  - `?res=eod&act=submit_report`
+- 预期结果：
+  - 返回 HTTP 200；
+  - 统计数据与原有逻辑一致；
+  - PHP 错误日志中无新增异常，尤其是无 `pos_invoice_payments` 相关报错。
+
+五、与技术债文档的关系
+
+- `pos_known_issues_and_debts.md` 中 ISSUE-POS-DB-001 已更新为“✅ 已修复（2025-11-21）”：
+  - 记录了修复分支与 commit；
+  - 描述了修复方式与自测要点。
+- 该案例将在全系统幽灵表整理报告中作为“POS 线幽灵函数处理示例”，为后续 CPSYS / KDS 审计提供参考。
+
+六、阶段结论与后续建议
+
+- 阶段结论：
+  - 本 Mini 阶段目标已达成：
+    - 幽灵表引用已从 `calculate_eod_totals` 中移除；
+    - 函数被安全熔断，不会被静默调用；
+    - EOD 正式实现链路保持稳定。
+- 后续建议：
+  - 在测试/预发布环境按自测方案执行一轮验证，将结果简要记录在阶段报告或技术债文档附注中；
+  - 在 L4-2B 全系统完成后，统一整理“幽灵表引用清单”，并将本次修复作为 POS 线的已处理项。
