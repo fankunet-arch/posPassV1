@@ -166,10 +166,26 @@ function handle_shift_end(PDO $pdo, array $config, array $input_data): void {
     // [A2 UTC SYNC] $shift['start_time'] 已经是 UTC 字符串
     $totals = compute_expected_cash($pdo, $store_id, $shift['start_time'], $now_utc_str, (float)$shift['starting_float']);
     $expected_cash = (float)$totals['expected_cash'];
-    $cash_diff     = round((float)$counted_cash - $expected_cash, 2);
+    $cash_variance = round((float)$counted_cash - $expected_cash, 2);
 
-    $upd = $pdo->prepare("UPDATE pos_shifts SET end_time=?, status='ENDED', counted_cash=? WHERE id=?");
-    $upd->execute([$now_utc_str, $counted_cash, $shift_id]);
+    // [FIX EOD-001] 获取支付方式汇总用于 payment_summary (与强制关班保持一致)
+    $period_summary = getInvoiceSummaryForPeriod($pdo, $store_id, $shift['start_time'], $now_utc_str);
+    $payment_summary_data = [
+        'cash' => (float)($period_summary['payments']['Cash'] ?? 0.0),
+        'card' => (float)($period_summary['payments']['Card'] ?? 0.0),
+        'platform' => (float)($period_summary['payments']['Platform'] ?? 0.0),
+        'total' => round(
+            (float)($period_summary['payments']['Cash'] ?? 0.0) +
+            (float)($period_summary['payments']['Card'] ?? 0.0) +
+            (float)($period_summary['payments']['Platform'] ?? 0.0),
+            2
+        )
+    ];
+    $payment_summary_json = json_encode($payment_summary_data);
+
+    // [FIX EOD-001] 补全 pos_shifts 字段写入 (expected_cash, cash_variance, payment_summary)
+    $upd = $pdo->prepare("UPDATE pos_shifts SET end_time=?, status='ENDED', counted_cash=?, expected_cash=?, cash_variance=?, payment_summary=? WHERE id=?");
+    $upd->execute([$now_utc_str, $counted_cash, $expected_cash, $cash_variance, $payment_summary_json, $shift_id]);
 
     if (table_exists($pdo, 'pos_eod_records')) {
         $ins = $pdo->prepare("INSERT INTO pos_eod_records
@@ -179,7 +195,7 @@ function handle_shift_end(PDO $pdo, array $config, array $input_data): void {
         $ins->execute([
             $shift_id, $store_id, $user_id, $shift['start_time'], $now_utc_str, (float)$totals['starting_float'],
             (float)$totals['cash_sales'], (float)$totals['cash_in'], (float)$totals['cash_out'],
-            (float)$totals['cash_refunds'], $expected_cash, (float)$counted_cash, (float)$cash_diff
+            (float)$totals['cash_refunds'], $expected_cash, (float)$counted_cash, (float)$cash_variance
         ]);
         $eod_id = (int)$pdo->lastInsertId();
     } else {
@@ -218,7 +234,7 @@ function handle_shift_end(PDO $pdo, array $config, array $input_data): void {
             'cash_refunds'   => $totals['cash_refunds'],
             'expected_cash'  => $totals['expected_cash'],
             'counted_cash'   => (float)$counted_cash,
-            'cash_diff'      => $cash_diff,
+            'cash_diff'      => $cash_variance,
         ],
     ], 'Shift ended.');
 }
