@@ -39,21 +39,34 @@
 - 模块：POS · 后端 EOD（日结）辅助函数
 - 位置（参考）：`pos_backend/helpers/pos_helper.php` 中的 `calculate_eod_totals` 函数
 - 描述：
-  - 函数 `calculate_eod_totals` 中存在 SQL，引用了表 `pos_invoice_payments`；
+  - 函数 `calculate_eod_totals` 中原本存在 SQL，引用了表 `pos_invoice_payments`；
   - 在当前 Schema（`db_schema_structure_only.sql`）中，**不存在** `pos_invoice_payments` 这张表；
-  - 实际的支付信息和日结逻辑，已基于 `pos_invoices.payment_summary` JSON 字段在 `pos_repo.php` 中实现；
-  - `calculate_eod_totals` 疑似旧实现残留，目前应处于“死代码 / 幽灵函数”状态。
+  - EOD 正式逻辑已经在 `pos_repo.php::getInvoiceSummaryForPeriod()` 中实现，基于 `pos_invoices.payment_summary` 字段；
+  - `calculate_eod_totals` 确认属于旧实现残留的“幽灵函数”。
+
 - 影响：
-  - 如果该函数被旧接口或未来新代码误调用，将直接导致 500 错误（引用不存在的表）；
-  - 对后续维护者存在误导：看代码会以为系统有 `pos_invoice_payments` 这张表。
-- 临时措施：
-  - 暂不在当前次卡阶段直接删除或重写该函数；
-  - 将其标记为技术债，在日结模块整理时统一处理。
-- 计划修复阶段：
-  - 在专门的“EOD/日结模块整理”小版本中处理（计划单独开分支）：
-    - 方案A：确认完全没有引用后，删除该函数或将其实现替换为统一调用 `pos_repo` 中的日结逻辑；
-    - 方案B：如仍有合法调用路径，则重写函数，使其基于 `pos_invoices.payment_summary` 实现，彻底移除对幽灵表的引用。
-- 当前状态：已确认问题存在，准备在近期 mini 任务中修复。
+  - 修复前：若该函数被旧接口或未来误调用，会因访问幽灵表导致 SQL 错误（500）；
+  - 容易误导后续维护者，以为系统存在 `pos_invoice_payments` 这张表。
+
+- 修复方式（2025-11-21）：
+  - 分支：`claude/secure-eod-module-01ACdts5h7P4fHesgdvk757r`
+  - Commit：`c454508 - [SECURITY] Deprecate calculate_eod_totals`
+  - 具体改动：
+    - 保留 `calculate_eod_totals` 函数签名；
+    - 在函数开头抛出明确的废弃异常（包含 "DEPRECATED" 关键字，并指向 `pos_repo::getInvoiceSummaryForPeriod()` 作为替代）；
+    - 删除所有访问 `pos_invoice_payments` 的 SQL 逻辑；
+    - 添加 `@deprecated` / `@throws` PHPDoc 注解和简短说明，方便后续维护者追踪。
+
+- 自测要点：
+  - 直接调用 `calculate_eod_totals(...)`：
+    - 预期：抛出“DEPRECATED” 异常，而非 SQL 错误；
+  - 通过 API 走一遍 EOD 流程：
+    - `?res=eod&act=get_preview`、`?res=eod&act=submit_report` 返回 200，统计结果正常；
+    - PHP 错误日志中不再出现 `pos_invoice_payments` 相关错误。
+
+- 当前状态：
+  - ✅ 已修复（2025-11-21），待门店/测试环境按上述自测方案验证；
+  - 后续在全系统幽灵表整理报告中，将本案例列为“已处理示例”。
 
 ---
 
