@@ -321,6 +321,48 @@ function handle_pass_purchase(PDO $pdo, array $config, array $input_data): void 
             json_error('Pass plan not found for sku: ' . $cart_item['sku'], 404);
         }
 
+        // ==== 5.1 [POS-PASS-PRICE-FIX-MINI] LOCK PRICE TO DB SALE_PRICE ====
+        // CRITICAL SECURITY FIX: VR amount MUST come from DB, not frontend
+        // Pass sale price is single source of truth from pass_plans.sale_price
+
+        // 5.1a. Extract DB sale price (SSOT)
+        $unit_price_from_db = (float)($plan_details['sale_price'] ?? 0);
+        if ($unit_price_from_db <= 0) {
+            json_error('Invalid configuration: pass sale_price is not configured or is zero.', 500);
+        }
+
+        // 5.1b. Extract quantity
+        $qty = isset($cart_item['qty']) ? (int)$cart_item['qty'] : 1;
+        if ($qty <= 0) {
+            json_error('Invalid quantity: must be greater than zero.', 400);
+        }
+
+        // 5.1c. Calculate total based on DB price (not frontend)
+        $amount_total_from_db = round($unit_price_from_db * $qty, 2);
+
+        // 5.1d. Optional: Detect and log price mismatch (do NOT reject order)
+        if (isset($cart_item['price'])) {
+            $client_price = (float)$cart_item['price'];
+            $price_diff = abs($client_price - $unit_price_from_db);
+            if ($price_diff > 0.01) {
+                // WARNING: Frontend price differs from DB - potential tampering or bug
+                error_log("[PASS_PURCHASE_PRICE_MISMATCH] store_id={$store_id}, " .
+                          "member_id={$member_id}, " .
+                          "sku={$cart_item['sku']}, " .
+                          "frontend_price={$client_price}, " .
+                          "db_sale_price={$unit_price_from_db}, " .
+                          "diff={$price_diff}");
+            }
+        }
+
+        // 5.1e. Override cart_item with DB-verified price (CRITICAL)
+        // This ensures create_pass_records receives ONLY DB-sourced pricing
+        $cart_item['price'] = $unit_price_from_db;
+        $cart_item['total'] = $amount_total_from_db;
+        $cart_item['qty'] = $qty; // Normalize qty as well
+
+        // ==== END PRICE FIX ====
+
         // 6. 检查购买限制 (依赖: pos_pass_helper.php)
         // B1 阶段简化: 暂不实现复杂的限制
         // check_pass_purchase_limits($pdo, $member_id, $plan_details);

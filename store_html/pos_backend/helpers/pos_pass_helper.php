@@ -54,6 +54,7 @@ if (!function_exists('create_pass_records')) {
     /**
      * [B1.2] P0 售卡：创建售卡记录 (topup_orders + member_passes)
      * [FIX 2025-11-19] 实现叠加购买：允许同一会员多次购买同一方案，累加次数而不是插入新记录
+     * [POS-PASS-PRICE-FIX-MINI] VR 金额只使用 DB 中的 pass_plans.sale_price
      *
      * 业务规则：
      * - 每次购买都生成一条 topup_orders 记录（VR 订单）
@@ -81,8 +82,26 @@ if (!function_exists('create_pass_records')) {
         // - auto_activate = 0: 需审核后激活 (status='suspended')
         $initial_status = ($auto_activate === 1) ? 'active' : 'suspended';
 
-        // 从 cart_item 中提取价格
-        $unit_price = (float)($cart_item['price'] ?? $cart_item['total'] ?? 0);
+        // ==== [POS-PASS-PRICE-FIX-MINI] CRITICAL SECURITY FIX ====
+        // ALWAYS use plan_details.sale_price (DB) as single source of truth
+        // NEVER trust cart_item['price'] (frontend) for VR amount calculations
+
+        // 1a. Extract unit price from DB (SSOT)
+        $unit_price = (float)($plan_details['sale_price'] ?? 0);
+        if ($unit_price <= 0) {
+            throw new Exception('[PASS_PURCHASE] Invalid pass configuration: sale_price is zero or missing.');
+        }
+
+        // 1b. Extract and validate quantity
+        $qty = isset($cart_item['qty']) ? (int)$cart_item['qty'] : 1;
+        if ($qty <= 0) {
+            throw new Exception('[PASS_PURCHASE] Invalid quantity: must be greater than zero.');
+        }
+
+        // 1c. Calculate total amount based on DB price (not frontend)
+        $amount_total = round($unit_price * $qty, 2);
+
+        // ==== END PRICE FIX ====
 
         // 2. 写入 售卡订单 (VR) - 每次购买都生成新订单
         $sql_topup = "
@@ -96,8 +115,8 @@ if (!function_exists('create_pass_records')) {
         $stmt_topup->execute([
             $plan_details['pass_plan_id'],
             $member_id,
-            (int)$cart_item['qty'],
-            $unit_price,
+            $qty, // [PRICE-FIX] Use validated qty
+            $amount_total, // [PRICE-FIX] Use DB-calculated total amount
             $store_id,
             $device_id,
             $user_id,
@@ -109,8 +128,8 @@ if (!function_exists('create_pass_records')) {
 
         // 3. 叠加购买逻辑：先查询是否已有该会员+方案的记录
         $plan_id = $plan_details['pass_plan_id'];
-        $total_uses_to_add = (int)$plan_details['total_uses'] * (int)$cart_item['qty'];
-        $purchase_amount_to_add = $unit_price;
+        $total_uses_to_add = (int)$plan_details['total_uses'] * $qty; // [PRICE-FIX] Use validated qty
+        $purchase_amount_to_add = $amount_total; // [PRICE-FIX] Use DB-calculated total
 
         $sql_check = "
             SELECT member_pass_id, total_uses, remaining_uses, purchase_amount, expires_at
