@@ -1,0 +1,107 @@
+TopTea 次卡 · 项目总览与大线进度（v2）
+更新日期：2025-11-21
+
+一、文档用途
+本文件用于给任何新加入的 AI / 人类一个「一眼能看懂的大地图」：
+- 我们有哪些系统（POS / CPSYS / KDS / BMS）？
+- 每条大线在干什么、拆成哪些阶段？
+- 现在走到哪一步了？哪些已经完成，哪些是高风险？
+
+详细技术细节，请参考：
+- 《TopTea-次卡_POS_对齐与现状总览_v2.txt》
+- 《TopTea-次卡_POS_技术债与Issue清单_v2.md》
+- 《TopTea-次卡_POS_阶段报告汇总_L4_v1.txt》
+- 《TopTea-次卡_CPSYS_技术债与Issue清单_v2.md》
+- 《TopTea-次卡_CPSYS_阶段报告汇总_L4_B1_v1.txt》
+
+--------------------------------------------------
+二、全局基线（所有系统共用）
+
+1）时间与时区
+- 数据库时间统一为：UTC + DATETIME(6)
+- 所有连接层执行：`SET time_zone = '+00:00'`
+- PHP Helper：`pos_datetime_helper.php` 中所有时间运算以 UTC 为准
+
+2）核心数据模型（次卡相关）
+- pass_plans：次卡方案（sale_price, total_uses, auto_activate 等）
+- member_passes：会员拥有的次卡资产
+- topup_orders：购卡 VR 订单
+- pass_redemptions / pass_redemption_batches：次卡核销记录
+- 所有新实现均基于这组「新线」表，老线表只保留供审计参考（详见 L4-2A/L4-2B）
+
+--------------------------------------------------
+三、系统与大线一览
+
+1）POS 线（门店前台）
+
+（1）POS-PASS：次卡购卡与核销闭环
+- 目标：
+  - 在不重写 POS 架构的前提下，打通「优惠中心 → 购卡 → 支付 → 次卡资产 → 核销」全链路；
+  - 支持 0 元核销、加价核销、叠加购买。
+- 关键模块：
+  - 前端：discountCenter.js / discountCard.js / passSession.js / cart.js / payment.js
+  - 后端：pos_pass_helper.php、pos_repo_ext_pass.php、pos_registry_member_pass.php、pos_registry_ext_pass.php
+- 当前状态：
+  - ✅ P1：购卡入口与 VR 落库已打通（支持叠加购卡）
+  - ✅ P2：核销入口与计价逻辑已落地（0 元、不生成 TP；extra_charge_total 有加价）
+  - ✅ P3：核销幂等与 0 元核销修复完成（数据库层面已支持 order_id 允许 NULL）
+  - ✅ B1-PASS-REVIEW-AND-PAYMENT-MINI：售卡审核链路 + 支付白名单逻辑已补全
+  - 详情：见《TopTea-次卡_POS_阶段报告汇总_L4_v1.txt》
+
+（2）POS-EOD：班次 / 日结 / 报表
+- 目标：
+  - 班次起止、EOD 提交、现金差异、支付方式汇总全部基于新链路（pos_invoices + pos_repo）
+  - 清理旧的 EOD 幽灵函数与幽灵表引用
+- 当前状态：
+  - ✅ ISSUE-POS-DB-001：幽灵函数 calculate_eod_totals 已熔断，不再访问幽灵表 `pos_invoice_payments`
+  - ✅ 正常关班（ENDED）：已写入 expected_cash, cash_variance, payment_summary
+  - ✅ 强制关班（FORCE_CLOSED）：字段集对齐，payment_summary 已具备结构化数据（现金/银行卡/平台 + 备注）
+  - 详情：见《TopTea-次卡_POS_对齐与现状总览_v2.txt》与阶段报告汇总
+
+2）CPSYS 线（总部 / BMS）
+
+（1）CPSYS-B1：次卡后台（审核与配置）
+- 目标：
+  - 让 CPSYS 中的 auto_activate + topup_orders.review_status 真正生效；
+  - 确保 POS 侧只认已审核通过的次卡（member_passes.status='active'）
+- 当前状态：
+  - ✅ B1-PASS-REVIEW-AND-PAYMENT-MINI：完成售卡审核链路与 status=suspended 语义对齐
+  - ⚠️ 部分历史数据与极端场景仍需人工复核（详见 CPSYS 技术债清单）
+
+（2）CPSYS-PASS-PRICE：次卡售价链路（CPSYS → POS → VR）
+- 唯一真相字段：pass_plans.sale_price
+- 目标：
+  - CPSYS 编辑方案时维护 sale_price
+  - POS 购卡与 VR 落库以 sale_price 为准
+- 当前状态：
+  - ✅ 已完成一次专项审计（POS-CPSYS-PASS-VR-PRICE-MINI）
+  - 部分历史分支中存在「本地硬编码价格」的风险已记录为技术债
+
+（3）CPSYS-LOYALTY：会员买 N 送 1 / 积点规则
+
+- 目标：
+  - 为会员提供可配置的“买十送一”等积点玩法；
+  - 积点规则完全在 CPSYS 配置，POS 负责执行与上报；
+- 范围（首期 CPSYS-LOYALTY-001）：
+  - 仅支持基于 POS 门店付费普通饮品的 “买 N 送 1” 规则；
+  - 外卖等第三方渠道订单不计入杯数；
+  - 次卡核销、赠品、满减赠送的饮品不计入杯数；
+  - 免费杯不触发新的积点，只作为权益消耗；
+  - 不提供手工调整杯数，只允许通过补挂真实订单进行事后补记；
+- 状态：
+  - 需求方案：CPSYS-LOYALTY-001_v1（本文件）
+  - 实现状态：PLANNED
+
+--------------------------------------------------
+四、阶段与文档索引（给 AI 用）
+
+- POS 总对齐：`TopTea-次卡_POS_对齐与现状总览_v2.txt`
+- POS 问题清单：`TopTea-次卡_POS_技术债与Issue清单_v2.md`
+- POS 阶段报告汇总：`TopTea-次卡_POS_阶段报告汇总_L4_v1.txt`
+- CPSYS 问题清单：`TopTea-次卡_CPSYS_技术债与Issue清单_v2.md`
+- CPSYS 阶段报告汇总：`TopTea-次卡_CPSYS_阶段报告汇总_L4_B1_v1.txt`
+
+阅读顺序建议：
+1. 先看本文件（大地图）
+2. 再看 POS / CPSYS 对齐 + 技术债
+3. 需要追溯某个阶段时，再进阶段报告汇总

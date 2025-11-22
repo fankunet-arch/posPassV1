@@ -1,0 +1,88 @@
+TopTea 次卡 · POS 阶段报告汇总（L4 系列）
+更新日期：2025-11-21
+
+一、文档用途
+- 把 POS 相关的多个阶段报告压缩到一份索引式摘要里；
+- 每个阶段只保留：目标、范围、主要结论、关联分支 / Issue；
+- 详细过程仍可从旧报告中找回，本文件用于新开聊天时快速对齐。
+
+--------------------------------------------------
+二、L4-2A：老线表 Schema 粗筛（跨系统）
+
+- 时间：2025-11-20 ~ 2025-11-21
+- 范围：db_schema_structure_only.sql 中所有次卡相关表
+- 目标：
+  - 区分「新线」次卡模型表与「老线/废弃」表；
+  - 确认当前快照中是否存在潜在冲突的旧线表。
+- 结论：
+  - 当前快照中，POS/CPSYS 主线均围绕 pass_plans / member_passes / pass_redemptions 等新线表；
+  - 老线表大多已不在当前 Schema 中或仅残留零星痕迹；
+  - 为后续 L4-2B-POS / L4-2B-CPSYS 的代码引用审计提供基线。
+- 状态：`DONE`.
+
+--------------------------------------------------
+三、L4-2B-POS：老线次卡数据表 · POS 代码引用审计
+
+- 时间：2025-11-21
+- 范围：POS 代码仓（/store_html/html/pos + /store_html/pos_backend）
+- 目标：
+  - 检查 POS 是否还在引用老线次卡表或幽灵表；
+  - 找出幽灵函数 / 幽灵脚本 / 重复目录结构；
+  - 识别出“真正上线链路”和“旧实现残留”。
+- 主要发现：
+  1）API 注册表与 helper：
+     - 正式入口集中在 pos_api_gateway.php + 各类 pos_registry_xxx.php。
+     - 次卡购卡/核销走 pos_pass_helper.php + pos_repo_ext_pass.php。
+  2）迁移脚本 V1/V2：
+     - migrate_pass_redemptions.php（V1）与 migrate_pass_redemptions_v2.php（V2）同时存在；
+     - V2 是修复 order_id 可 NULL 的新版本；
+     - 建议仅保留/使用 V2，V1 归档。
+  3）幽灵目录：
+     - store_html/html/pos/pos/ 为完整递归拷贝，属幽灵目录，已列为清理目标。
+- 关联 Issue：
+  - ISSUE-POS-DIR-001（目录嵌套问题）
+- 状态：`DONE`（幽灵目录已按后续任务清理）。
+
+--------------------------------------------------
+四、POS-EOD-MINI-001：EOD 幽灵函数熔断
+
+- 时间：2025-11-21
+- 范围：pos_helper.php 中 EOD 相关函数
+- 目标：
+  - 针对 ISSUE-POS-DB-001，彻底熔断 calculate_eod_totals 对幽灵表 pos_invoice_payments 的访问；
+  - 确保现行 EOD 链路完全基于 pos_repo::getInvoiceSummaryForPeriod() + pos_invoices.payment_summary。
+- 改动：
+  - calculate_eod_totals 进入即抛异常，标记为 DEPRECATED；
+  - 任何使用该函数的旧路径如果被误调用，会显式报错而不是写错库。
+- 状态：`DONE`。
+
+--------------------------------------------------
+五、L4-2B-POS-EOD-MINI：班次/EOD 链路审计与修复设计
+
+- 时间：2025-11-21
+- 范围：POS 班次 / EOD / 报表模块（pos_repo.php, pos_registry_ops_eod.php, pos_registry_ops_shift.php 等）
+- 目标：
+  1）梳理班次开始 → 班次结束 → EOD 提交的完整链路；
+  2）为正常关班字段补齐设计修复方案；
+  3）统一 EOD 数据源（getInvoiceSummaryForPeriod）。
+- 主要结论：
+  - 正式实现以 pos_repo 为 SSOT；
+  - 强制关班已写入 expected_cash / cash_variance / payment_summary；
+  - 正常关班存在字段缺失（ISSUE-POS-EOD-001），已在后续补丁中修复。
+- 当前状态（结合最新补丁）：
+  - ISSUE-POS-EOD-001：`DONE`（正常关班字段已补齐）。
+
+--------------------------------------------------
+六、POS-CPSYS-PASS-VR-PRICE-MINI：次卡售价链路专项审计
+
+- 时间：2025-11-21
+- 系统范围：POS + CPSYS
+- 目标：
+  - 确认 pass_plans.sale_price 为唯一真相；
+  - 审计售价从 CPSYS → POS → VR 的完整链路；
+  - 找出历史实现中可能的本地硬编码/重复逻辑。
+- 主要结论：
+  - 唯一权威字段：pass_plans.sale_price（DECIMAL(10,2)）
+  - POS 应使用该字段填充优惠中心展示和 topup_orders.amount_total；
+  - CPSYS 某些历史界面存在未统一使用 sale_price 的情况，已作为 Issue 记录。
+- 状态：`PARTIAL`（审计完成，修复按 Issue 分阶段推进）。

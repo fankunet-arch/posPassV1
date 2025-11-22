@@ -1,0 +1,105 @@
+TopTea 次卡 · POS 端对齐与现状总览（v2）
+更新日期：2025-11-21
+
+一、文档用途
+本文件只看「POS 视角」，回答三个问题：
+1）POS 上购卡 / 核销 / EOD / 打印的操作路径是什么？
+2）当前代码实现到了哪一步？哪些地方已经和 CPSYS 对齐？
+3）哪些地方仍然依赖后续阶段（仅做提示，不展开细节）？
+
+--------------------------------------------------
+二、整体目标与原则（POS 视角）
+
+1）核心目标
+- 在既有 POS 架构上（jQuery + modules + PHP helper）增量实现：
+  - 次卡购买（Pass Purchase）
+  - 次卡核销（Pass Redemption）
+  - 完整的 VR/TP 落库
+  - 班次/EOD 的现金差异与支付汇总
+
+2）基础约束
+- 时间：统一使用 UTC + DATETIME(6)
+- 架构：沿用 `pos_helper` / `pos_repo` / `pos_registry` 模式
+- 业务约束：
+  - 一单一卡，不混单
+  - 0 元核销不生成 TP（只生成 VR）
+  - 班次/EOD 统计统一走 `pos_repo::getInvoiceSummaryForPeriod()`
+
+--------------------------------------------------
+三、POS 操作流程（当前版本）
+
+1）次卡购买（POS-PASS Purchase）
+
+- 用户路径：
+  1. 登录 POS → 绑定会员
+  2. 打开「优惠中心 → 次卡」模块（discountCenter.js）
+  3. 在列表中选择次卡方案（discountCard.js），加入购物车
+  4. 进入支付页（payment.js），完成支付
+- 后端链路：
+  - API：`pos_api_gateway.php` → `pos_registry_member_pass.php` → `pos_pass_helper::create_pass_records`
+  - 数据库：
+    - 写入 topup_orders (VR 订单)
+    - 写入/更新 member_passes（支持叠加购买）
+- 对 CPSYS 的对齐：
+  - 支持 pass_plans.auto_activate = 0 的审核场景：
+    - member_passes.status = 'suspended' 代表「待审核」
+    - CPSYS 审核通过后改为 'active'，POS 端仅允许 'active' 核销
+
+2）次卡核销（POS-PASS Redemption）
+
+- 用户路径：
+  1. 收银员在优惠中心中进入「次卡核销」模式（passSession.js）
+  2. 选择要核销的次卡，输入核销数量
+  3. 如果存在额外金额（extra_charge_total > 0），进入支付限制流程
+- 前端逻辑：
+  - cart.js：计算核销金额与 extra_charge_total
+  - payment.js：
+    - isPassRedemptionWithCharge = (extra_charge_total > 0)
+    - 有加价时，仅展示「现金 / 银行卡」等白名单支付方式
+- 后端逻辑：
+  - API：`pos_registry_ext_pass.php::handle_pass_redeem`
+  - create_redeem_records：
+    - extra_total > 0 时生成 TP 发票并限制非白名单支付
+    - extra_total = 0 时只生成 VR（order_id 允许 NULL）
+    - 幂等性：基于 idempotency_key 防止重复核销
+
+3）班次 / EOD（POS-EOD）
+
+- 班次起止：
+  - 开班：记录起始时间与期初备用金 starting_float
+  - 正常关班（ENDED）：
+    - 计算 expected_cash
+    - 计算 cash_variance = counted_cash - expected_cash
+    - 用 getInvoiceSummaryForPeriod 构建 payment_summary（cash/card/platform/total）
+    - 封存到 pos_shifts
+  - 强制关班（FORCE_CLOSED）：
+    - 字段集与 ENDED 对齐，status 不同
+    - payment_summary 中额外包含 note（例如 “Forcibly closed by Alice”）
+- 日结：
+  - 以 pos_invoices.payment_summary 为基础数据源
+  - 所有 EOD 报表逻辑通过 pos_repo 访问聚合数据
+
+4）打印相关（简要）
+
+- PASS_REDEMPTION_SLIP 模板：
+  - 使用 `{title}`, `{variant_name}`, `{qty}` 等字段
+  - 不再使用旧的 `{item_name}` 写法，避免字段名不统一
+- 打印规范问题被记录为技术债（见 POS 技术债文档）
+
+--------------------------------------------------
+四、当前状态小结（POS）
+
+- 次卡购卡：
+  - ✅ 功能已打通（含叠加购买）
+  - ✅ 审核链路已与 CPSYS 对齐（auto_activate / review_status / member_passes.status）
+- 次卡核销：
+  - ✅ 核销流程闭环
+  - ✅ 0 元核销 / 加价核销实现与技术债文档一致
+  - ✅ 幂等机制已落实
+- EOD：
+  - ✅ 幽灵函数已熔断
+  - ✅ 正常关班字段补齐（expected_cash / cash_variance / payment_summary）
+  - ✅ 强制关班字段集对齐，具备备注
+- 打印：
+  - ✅ PASS 核销小票模板已落地
+  - 🟡 模板字段命名规范仍为技术债，等待后续 PRINT 规范阶段统一收拾
