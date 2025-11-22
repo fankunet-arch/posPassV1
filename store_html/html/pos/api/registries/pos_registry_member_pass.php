@@ -71,20 +71,27 @@ function handle_member_find(PDO $pdo, array $config, array $input_data): void {
 
 
 function handle_member_create(PDO $pdo, array $config, array $input_data): void {
-    
+
     // [GEMINI FIX 2025-11-16] 修复前端 (member.js) 与后端的数据结构不匹配
     // member.js 发送 { data: { phone_number: ... } }
     // 此处优先检查 'data' 键，如果不存在，则回退到根 $input_data
     $data = $input_data['data'] ?? $input_data;
 
-    $first_name = trim($data['first_name'] ?? '');
-    $last_name = trim($data['last_name'] ?? '');
+    // [POS-MEMBER-CREATE-001 FIX] 字段归一化：空字符串转换为 NULL
     $phone = trim($data['phone_number'] ?? $data['phone'] ?? '');
-    $email = trim($data['email'] ?? '');
-    $birthdate = trim($data['birthdate'] ?? '');
-    
+    $first_name_raw = trim($data['first_name'] ?? '');
+    $last_name_raw = trim($data['last_name'] ?? '');
+    $email_raw = trim($data['email'] ?? '');
+    $birthdate_raw = trim($data['birthdate'] ?? '');
+
     if (empty($phone)) json_error('Phone number is required.', 400);
-    
+
+    // 归一化：空字符串转 NULL（符合数据库设计和业务逻辑）
+    $first_name = ($first_name_raw === '') ? null : $first_name_raw;
+    $last_name = ($last_name_raw === '') ? null : $last_name_raw;
+    $email = ($email_raw === '') ? null : $email_raw;
+    $birthdate = ($birthdate_raw === '') ? null : $birthdate_raw;
+
     // 依赖: gen_uuid_v4 (来自 pos_helper.php)
     if (!function_exists('gen_uuid_v4')) json_error('Missing dependency: gen_uuid_v4', 500);
     $member_uuid = gen_uuid_v4();
@@ -125,7 +132,7 @@ function handle_member_create(PDO $pdo, array $config, array $input_data): void 
             ':last_name' => $last_name,
             ':phone' => $phone,
             ':email' => $email,
-            ':birthdate' => empty($birthdate) ? null : $birthdate, // 允许生日为空
+            ':birthdate' => $birthdate, // 已在上方归一化处理（空字符串转NULL）
         ]);
         
         $member_id = $pdo->lastInsertId();
@@ -152,15 +159,36 @@ function handle_member_create(PDO $pdo, array $config, array $input_data): void 
 
     } catch (PDOException $e) {
         $pdo->rollBack();
+
+        // [POS-MEMBER-CREATE-001 FIX] 详细记录数据库错误，便于排查
+        $error_code = $e->errorInfo[1] ?? 0;
+        $sql_state = $e->errorInfo[0] ?? 'N/A';
+        error_log("[MEMBER_CREATE_ERROR] PDOException caught");
+        error_log("[MEMBER_CREATE_ERROR] SQLSTATE: {$sql_state}");
+        error_log("[MEMBER_CREATE_ERROR] Error Code: {$error_code}");
+        error_log("[MEMBER_CREATE_ERROR] Message: " . $e->getMessage());
+        error_log("[MEMBER_CREATE_ERROR] Phone: {$phone}");
+        error_log("[MEMBER_CREATE_ERROR] Birthdate: " . var_export($birthdate, true));
+
         // 检查是否为唯一约束冲突 (1062)
-        if ($e->errorInfo[1] == 1062) {
-            json_error('Phone number already exists.', 409); // 409 Conflict
+        if ($error_code == 1062) {
+            // 手机号重复，返回业务错误而不是500
+            json_error('Phone number already registered.', 409);
         }
-        // 记录日志 (如果配置了)
-        // error_log($e->getMessage());
+
+        // 检查是否为外键约束错误 (1452)
+        if ($error_code == 1452) {
+            error_log("[MEMBER_CREATE_ERROR] Foreign key constraint violation - member_level_id may be invalid");
+            json_error('Failed to create member: Invalid member level configuration.', 500);
+        }
+
+        // 其他数据库错误
         json_error('Failed to create member: DB Error.', 500);
+
     } catch (Exception $e) {
         $pdo->rollBack();
+        error_log("[MEMBER_CREATE_ERROR] Exception: " . $e->getMessage());
+        error_log("[MEMBER_CREATE_ERROR] Trace: " . $e->getTraceAsString());
         json_error('Failed to create member: Server Error.', 500);
     }
 }
