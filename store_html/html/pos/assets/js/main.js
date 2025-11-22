@@ -302,6 +302,25 @@ function bindEvents() {
   $document.on('click', '#btn_sold_out_decision_reset', handleSoldOutDecisionReset);
   // --- [估清] 结束 ---
 
+  // --- [P-PASS-CART-STATE-001] 支付弹窗关闭时重置售卡模式 ---
+  const paymentModal = document.getElementById('paymentModal');
+  if (paymentModal) {
+    paymentModal.addEventListener('hidden.bs.modal', function() {
+      // 当支付弹窗关闭时，如果售卡模式状态仍然存在，说明用户取消了支付
+      // 此时需要重置售卡模式状态，避免影响后续普通订单
+      if (STATE.purchasingDiscountCard !== null && !STATE.passPurchaseCleanupPending) {
+        console.log('[PASS_PURCHASE_STATE_FIX] Payment modal closed with active pass purchase mode.');
+        console.log('[PASS_PURCHASE_STATE_FIX] User likely cancelled payment. Resetting pass purchase mode.');
+
+        // 导入并调用重置函数
+        import('./modules/payment.js').then(module => {
+          module.resetPassPurchaseMode();
+        });
+      }
+    });
+  }
+  // --- [P-PASS-CART-STATE-001] 结束 ---
+
   // --- [优惠卡购买] 成功弹窗关闭后的清理 ---
   const cardPurchaseSuccessModal = document.getElementById('cardPurchaseSuccessModal');
   if (cardPurchaseSuccessModal) {

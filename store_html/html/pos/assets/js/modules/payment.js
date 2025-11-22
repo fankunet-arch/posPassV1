@@ -11,6 +11,24 @@ import { handlePrintJobs } from './print.js';
 let paymentConfirmModal = null;
 
 /**
+ * [P-PASS-CART-STATE-001] 重置售卡模式状态
+ *
+ * 在以下场景中调用：
+ * 1. 用户取消/关闭支付弹窗
+ * 2. 订单成功后
+ * 3. 任何需要退出售卡模式的场景
+ *
+ * 目的：防止售卡模式状态残留，导致后续普通订单错误地走售卡接口
+ */
+export function resetPassPurchaseMode() {
+    if (STATE.purchasingDiscountCard !== null) {
+        console.log('[PASS_PURCHASE_STATE_FIX] Resetting pass purchase mode. Previous value:', STATE.purchasingDiscountCard);
+        STATE.purchasingDiscountCard = null;
+        STATE.passPurchaseCleanupPending = false;
+    }
+}
+
+/**
  * 入口：打开结账弹窗
  * 核心修改：不再默认添加现金行，支付区域初始为空。
  * [优惠卡购买] 检测优惠卡购买模式，限制支付方式
@@ -332,8 +350,22 @@ export async function submitOrder() {
         // Flow C: Normal Orders
 
         let result;
-        const isDiscountCardPurchase = STATE.purchasingDiscountCard !== null;
+        let isDiscountCardPurchase = STATE.purchasingDiscountCard !== null;
         const isRedemption = STATE.activePassSession !== null;
+
+        // [P-PASS-CART-STATE-001] 防御性检查：检测售卡模式状态异常
+        if (isDiscountCardPurchase && STATE.cart && STATE.cart.length > 0) {
+            console.error('[PASS_PURCHASE_STATE_FIX] Invalid pass purchase context detected!');
+            console.error('[PASS_PURCHASE_STATE_FIX] STATE.purchasingDiscountCard is set, but cart contains products:', STATE.cart);
+            console.error('[PASS_PURCHASE_STATE_FIX] This indicates stale state from a cancelled pass purchase.');
+            console.error('[PASS_PURCHASE_STATE_FIX] Resetting pass purchase mode and falling back to normal order.');
+
+            // 重置售卡模式状态
+            resetPassPurchaseMode();
+
+            // 修正标志，走普通订单流程
+            isDiscountCardPurchase = false;
+        }
 
         if (isDiscountCardPurchase) {
             // --- Flow A: Discount Card Purchase (ONLY valid pass purchase flow) ---
@@ -467,6 +499,7 @@ export async function submitOrder() {
             STATE.cart = [];
             STATE.activeCouponCode = '';
             STATE.activePassSession = null; // [B1.4 P3] 退出核销模式
+            resetPassPurchaseMode(); // [P-PASS-CART-STATE-001] 重置售卡模式
             $('#coupon_code_input').val('');
             unlinkMember();
             calculatePromotions();
